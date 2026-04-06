@@ -1,0 +1,13 @@
+{
+  "id": "tasks",
+  "name": "Tasks",
+  "description": "A simple plugin to manage CalDav To-Do events or tasks.",
+  "version": "1.0.0",
+  "author": "Yasiru Dharmathilaka <yasiru.dharmathilaka@gmail.com>",
+  "icon": "widget",
+  "type": "widget",
+  "component": "./Main.qml",
+  "settings": "./Settings.qml",
+  "permissions": ["settings_read", "settings_write"],
+  "requires": ["python", "python-caldav"]
+}
