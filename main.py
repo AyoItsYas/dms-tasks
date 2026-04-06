@@ -40,7 +40,7 @@ def __main__(
     CALDAV_USERNAME: str,
     CALDAV_PASSWORD: str,
     CALDAV_CALENDAR: str,
-    DEFAULT_TZ: str = "Asia/Colombo",
+    LOCAL_TZ: str = datetime.now().astimezone().tzinfo,
 ) -> dict[str, Any]:
     CALENDAR: CalendarResult = get_calendar(
         url=CALDAV_URL,
@@ -52,7 +52,7 @@ def __main__(
     TODO_EVENTS = CALENDAR.search(todo=True, include_completed=True)
 
     DATA = []
-    TODAY = datetime.now(ZoneInfo(DEFAULT_TZ)).date()
+    TODAY = datetime.now(LOCAL_TZ).date()
 
     total_count, complete_count = 0, 0
     for TODO_EVENT in TODO_EVENTS:
@@ -70,15 +70,17 @@ def __main__(
         DUE = TODO_EVENT_COMPONENT.get("DUE")
         if DUE:
             DUE = DUE.dt.replace(
-                tzinfo=ZoneInfo(TODO_EVENT_COMPONENT.get("TZID", DEFAULT_TZ))
+                tzinfo=ZoneInfo(TODO_EVENT_COMPONENT.get("TZID")) if TODO_EVENT_COMPONENT.get("TZID") else LOCAL_TZ
             )
         else:
             ALL_DAY = True
             DUE = datetime.today().replace(
-                hour=0, minute=0, second=0, microsecond=0, tzinfo=ZoneInfo(DEFAULT_TZ)
+                hour=0, minute=0, second=0, microsecond=0, tzinfo=LOCAL_TZ
             )
 
-        DTSTAMP = TODO_EVENT_COMPONENT.get("DTSTAMP").dt.replace(tzinfo=ZoneInfo(TODO_EVENT_COMPONENT.get("TZID", DEFAULT_TZ)))
+        DTSTAMP = TODO_EVENT_COMPONENT.get("DTSTAMP").dt.replace(
+            tzinfo=ZoneInfo(TODO_EVENT_COMPONENT.get("TZID")) if TODO_EVENT_COMPONENT.get("TZID") else LOCAL_TZ
+        )
 
         if DTSTAMP.date() == TODAY:
             total_count += 1
@@ -102,7 +104,7 @@ def __main__(
     DATA.sort(key=lambda x: x.get("due"))
 
     # get the system time and use it to find the current task
-    NOW = datetime.now(ZoneInfo(DEFAULT_TZ))
+    NOW = datetime.now(LOCAL_TZ)
     CURRENT = None
 
     for TASK in DATA:
