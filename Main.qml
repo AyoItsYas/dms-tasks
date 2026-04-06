@@ -83,7 +83,7 @@ PluginComponent {
             // current task
             StyledText {
                 visible: !root.loading
-                text: Qt.formatDateTime(root.data.currentTask.due, "hh:mm")  + " - " + root.data.currentTask.summary
+                text: ((root.data.completeCount / root.data.totalCount) * 100).toFixed(0) + "% " +Qt.formatDateTime(root.data.currentTask.due, "hh:mm")  + " - " + root.data.currentTask.summary
                 font.pixelSize: Theme.fontSizeSmall
                 color: Theme.surfaceText
                 anchors.verticalCenter: parent.verticalCenter

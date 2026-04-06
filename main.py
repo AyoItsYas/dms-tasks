@@ -52,19 +52,19 @@ def __main__(
     TODO_EVENTS = CALENDAR.search(todo=True, include_completed=True)
 
     DATA = []
+    TODAY = datetime.now(ZoneInfo(DEFAULT_TZ)).date()
 
+    total_count, complete_count = 0, 0
     for TODO_EVENT in TODO_EVENTS:
         TODO_EVENT_COMPONENT = TODO_EVENT.get_icalendar_component()
 
         if TODO_EVENT_COMPONENT.get("RELATED-TO"):
             continue
 
-        # debug(TODO_EVENT_COMPONENT)
-        # debug(
-        #     TODO_EVENT_COMPONENT.get("SUMMARY"),
-        #     TODO_EVENT_COMPONENT.get("DUE"),
-        #     TODO_EVENT_COMPONENT.get("DUE").dt,
-        # )
+        debug(
+            TODO_EVENT_COMPONENT.get("SUMMARY"),
+            TODO_EVENT_COMPONENT,
+        )
 
         ALL_DAY = False
         DUE = TODO_EVENT_COMPONENT.get("DUE")
@@ -77,6 +77,17 @@ def __main__(
             DUE = datetime.today().replace(
                 hour=0, minute=0, second=0, microsecond=0, tzinfo=ZoneInfo(DEFAULT_TZ)
             )
+
+        DTSTAMP = TODO_EVENT_COMPONENT.get("DTSTAMP").dt.replace(tzinfo=ZoneInfo(TODO_EVENT_COMPONENT.get("TZID", DEFAULT_TZ)))
+
+        if DTSTAMP.date() == TODAY:
+            total_count += 1
+            complete_count += 1
+
+        STATUS = TODO_EVENT_COMPONENT.get("STATUS")
+
+        if STATUS == "NEEDS-ACTION" and DUE.date() <= TODAY:
+            total_count += 1
 
         EVENT = {
             "uid": TODO_EVENT_COMPONENT.get("UID"),
@@ -109,7 +120,12 @@ def __main__(
                 TASKS_BY_DATE[DATE] = []
             TASKS_BY_DATE[DATE].append(TASK)
 
-    return {"currentTask": CURRENT, "tasks": list(TASKS_BY_DATE.values())}
+    return {
+        "currentTask": CURRENT,
+        "tasks": list(TASKS_BY_DATE.values()),
+        "totalCount": total_count,
+        "completeCount": complete_count,
+    }
 
 
 if __name__ == "__main__":
