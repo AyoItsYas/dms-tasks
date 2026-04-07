@@ -1,8 +1,8 @@
 import QtQuick
-import Quickshell
+// import Quickshell
 import Quickshell.Io
 import qs.Common
-import qs.Services
+// import qs.Services
 import qs.Widgets
 import qs.Modules.Plugins
 
@@ -11,13 +11,12 @@ PluginComponent {
 
     // plugin settings
     property var settings: ({
-        caldavURL: pluginData.caldavURL,
-        caldavUsername: pluginData.caldavUsername,
-        caldavPassword: pluginData.caldavPassword,
-        caldavCalendar: pluginData.caldavCalendar,
-
-        refreshInterval: isNaN(Number(pluginData.refreshInterval)) ? 60 : Number(pluginData.refreshInterval), // default to 1 minute
-    })
+            caldavURL: pluginData.caldavURL,
+            caldavUsername: pluginData.caldavUsername,
+            caldavPassword: pluginData.caldavPassword,
+            caldavCalendar: pluginData.caldavCalendar,
+            refreshInterval: isNaN(Number(pluginData.refreshInterval)) ? 60 : Number(pluginData.refreshInterval) // default to 1 minute
+        })
 
     // data loading
     property var data
@@ -32,15 +31,7 @@ PluginComponent {
 
     function loadData() {
         loadDataProcessOutput = "";
-        loadDataProcess.command = [
-            "python3",
-            root.currentDirectory + "main.py",
-            root.settings.caldavURL,
-            root.settings.caldavUsername,
-            root.settings.caldavPassword,
-            root.settings.caldavCalendar,
-            "0"
-        ];
+        loadDataProcess.command = ["python3", root.currentDirectory + "main.py", root.settings.caldavURL, root.settings.caldavUsername, root.settings.caldavPassword, root.settings.caldavCalendar, "0"];
         loadDataProcess.running = true;
     }
 
@@ -48,7 +39,7 @@ PluginComponent {
         id: loadDataProcess
 
         stdout: SplitParser {
-        onRead: data => {
+            onRead: data => {
                 root.loadDataProcessOutput += data + "\n";
             }
         }
@@ -77,16 +68,14 @@ PluginComponent {
         onTriggered: root.loadData()
     }
 
-
     horizontalBarPill: Component {
         Row {
             padding: Theme.spacingXS
-            spacing: Theme.spacingXS
 
             // current task
             StyledText {
                 visible: !root.loading
-                text: ((root.data.completeCount / root.data.totalCount) * 100).toFixed(0) + "% - " +Qt.formatDateTime(root.data.currentTask.due, "hh:mm")  + " : " + root.data.currentTask.summary
+                text: ((root.data.completeCount / root.data.totalCount) * 100).toFixed(0) + "% - " + Qt.formatDateTime(root.data.currentTask.due, "hh:mm") + " : " + root.data.currentTask.summary
                 font.pixelSize: Theme.fontSizeSmall
                 color: Theme.surfaceText
                 anchors.verticalCenter: parent.verticalCenter
@@ -156,7 +145,7 @@ PluginComponent {
                     anchors.horizontalCenter: parent.horizontalCenter
                 }
 
-                // tasks list
+                // scrollable tasks list
                 Flickable {
                     visible: !root.loading && root.data && root.data.tasks.length > 0
                     anchors.fill: parent
@@ -164,21 +153,26 @@ PluginComponent {
                     contentHeight: tasksGroupColumn.height
                     clip: true
 
+                    // main column
                     Column {
                         id: tasksGroupColumn
                         width: parent.width
                         padding: Theme.spacingS
                         spacing: Theme.spacingM
 
+                        // group tasks by due date
                         Repeater {
                             model: root.data.tasks
 
+                            // column for each group
                             Column {
-                                width: tasksGroupColumn.width
+                                id: taskColumn
+                                width: parent.width
                                 spacing: Theme.spacingS
 
                                 property var groupTasks: modelData
 
+                                // group header with due date
                                 StyledText {
                                     width: parent.width
                                     visible: groupTasks.length > 0
@@ -188,25 +182,55 @@ PluginComponent {
                                 }
 
                                 Repeater {
-                                    model: groupTasks
+                                    model: taskColumn.groupTasks
 
                                     Row {
+                                        id: taskRow
                                         width: tasksGroupColumn.width
-                                        spacing: Theme.spacingS
+                                        spacing: Theme.spacingXS
 
                                         StyledText {
                                             text: modelData.summary
                                             font.pixelSize: Theme.fontSizeSmall
                                             color: Theme.surfaceText
                                             elide: Text.ElideRight
-                                            width: parent.width - timestampText.implicitWidth - ((Theme.spacingS * 2) + Theme.spacingM)
+                                            width: parent.width - detailsRow.implicitWidth - Theme.spacingXL
                                         }
 
-                                        StyledText {
-                                            id: timestampText
-                                            text: modelData.allDay ? "NaN" : Qt.formatDateTime(new Date(modelData.due), "hh:mm")
-                                            font.pixelSize: Theme.fontSizeSmall
-                                            color: Theme.surfaceVariantText
+                                        // task details
+                                        Row {
+                                            id: detailsRow
+                                            spacing: Theme.spacingS
+                                            height: parent.height
+
+                                            StyledText {
+                                                id: timestampText
+                                                text: modelData.allDay ? "NaN" : Qt.formatDateTime(new Date(modelData.due), "hh:mm")
+                                                font.pixelSize: Theme.fontSizeSmall
+                                                color: Theme.surfaceVariantText
+                                            }
+
+                                            // checkbox
+                                            Rectangle {
+                                                width: Theme.fontSizeSmall * 0.70
+                                                height: width
+                                                radius: 0
+                                                color: "transparent"
+                                                border.width: 1
+                                                border.color: Theme.surfaceVariantText
+                                                anchors.verticalCenter: parent.verticalCenter
+
+                                                property bool checked: modelData.completed
+
+                                                DankIcon {
+                                                    anchors.fill: parent
+                                                    anchors.margins: 0
+                                                    name: "close"
+                                                    size: parent.width
+                                                    color: Theme.primary
+                                                    visible: parent.checked
+                                                }
+                                            }
                                         }
                                     }
                                 }

@@ -82,11 +82,15 @@ def __main__(
             tzinfo=ZoneInfo(TODO_EVENT_COMPONENT.get("TZID")) if TODO_EVENT_COMPONENT.get("TZID") else LOCAL_TZ
         )
 
+        COMPLETE = False
+        STATUS = TODO_EVENT_COMPONENT.get("STATUS")
+
         if DTSTAMP.date() == TODAY:
             total_count += 1
             complete_count += 1
 
-        STATUS = TODO_EVENT_COMPONENT.get("STATUS")
+            if STATUS == "COMPLETED":
+                COMPLETE = True
 
         if STATUS == "NEEDS-ACTION" and DUE.date() <= TODAY:
             total_count += 1
@@ -95,7 +99,7 @@ def __main__(
             "uid": TODO_EVENT_COMPONENT.get("UID"),
             "summary": TODO_EVENT_COMPONENT.get("SUMMARY"),
             "due": DUE,
-            "completed": True,
+            "completed": COMPLETE,
             "allDay": ALL_DAY,
         }
 
