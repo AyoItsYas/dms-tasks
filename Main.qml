@@ -80,10 +80,13 @@ PluginComponent {
 
     horizontalBarPill: Component {
         Row {
+            padding: Theme.spacingXS
+            spacing: Theme.spacingXS
+
             // current task
             StyledText {
                 visible: !root.loading
-                text: ((root.data.completeCount / root.data.totalCount) * 100).toFixed(0) + "% " +Qt.formatDateTime(root.data.currentTask.due, "hh:mm")  + " - " + root.data.currentTask.summary
+                text: ((root.data.completeCount / root.data.totalCount) * 100).toFixed(0) + "% - " +Qt.formatDateTime(root.data.currentTask.due, "hh:mm")  + " : " + root.data.currentTask.summary
                 font.pixelSize: Theme.fontSizeSmall
                 color: Theme.surfaceText
                 anchors.verticalCenter: parent.verticalCenter
@@ -110,27 +113,13 @@ PluginComponent {
 
     verticalBarPill: Component {
         Column {
-            StyledText {
-                visible: !root.loading
-                text: Qt.formatDateTime(root.data.currentTask.due, "hh:mm")  + " - " + root.data.currentTask.summary
-                font.pixelSize: Theme.fontSizeSmall
-                color: Theme.surfaceText
-            }
+            spacing: Theme.spacingXS
 
-            StyledText {
-                visible: root.loading
-                text: "Loading..."
-                font.pixelSize: Theme.fontSizeSmall
-                color: Theme.surfaceText
-                anchors.verticalCenter: parent.verticalCenter
-            }
-
-            StyledText {
-                visible: !root.loading && root.data && root.data.tasks.length <= 0
-                text: "Nothing to do..."
-                font.pixelSize: Theme.fontSizeSmall
-                color: Theme.surfaceText
-                anchors.verticalCenter: parent.verticalCenter
+            DankIcon {
+                name: "task_alt"
+                size: Theme.fontSizeMedium
+                color: Theme.primary
+                anchors.horizontalCenter: parent.horizontalCenter
             }
         }
     }
@@ -145,8 +134,7 @@ PluginComponent {
 
             Item {
                 width: parent.width
-                implicitHeight: root.popoutHeight - popoutColumn.headerHeight -
-                            popoutColumn.detailsHeight - Theme.spacingXL
+                implicitHeight: root.popoutHeight - popoutColumn.headerHeight - popoutColumn.detailsHeight - Theme.spacingXL
 
                 // loading text
                 StyledText {

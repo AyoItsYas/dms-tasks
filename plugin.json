@@ -4,7 +4,7 @@
   "description": "A simple plugin to manage CalDav To-Do events or tasks.",
   "version": "1.0.0",
   "author": "Yasiru Dharmathilaka <yasiru.dharmathilaka@gmail.com>",
-  "icon": "widget",
+  "icon": "task_alt",
   "type": "widget",
   "component": "./Main.qml",
   "settings": "./Settings.qml",
