@@ -19,7 +19,7 @@ PluginComponent {
         })
 
     // data loading
-    property var data
+    property var tasksData
     property bool loading: true
     property bool loadDataProcessError: false
     property string loadDataProcessOutput: ""
@@ -49,7 +49,7 @@ PluginComponent {
             try {
                 var json = JSON.parse(root.loadDataProcessOutput.trim());
 
-                root.data = json || {};
+                root.tasksData = json || {};
 
                 root.loadDataProcessError = false;
             } catch (e) {
@@ -75,7 +75,7 @@ PluginComponent {
             // current task
             StyledText {
                 visible: !root.loading
-                text: ((root.data.completeCount / root.data.totalCount) * 100).toFixed(0) + "% - " + Qt.formatDateTime(root.data.currentTask.due, "hh:mm") + " : " + root.data.currentTask.summary
+                text: ((root.tasksData.completeCount / root.tasksData.totalCount) * 100).toFixed(0) + "% - " + Qt.formatDateTime(root.tasksData.currentTask.due, "hh:mm") + " : " + root.tasksData.currentTask.summary
                 font.pixelSize: Theme.fontSizeSmall
                 color: Theme.surfaceText
                 anchors.verticalCenter: parent.verticalCenter
@@ -91,7 +91,7 @@ PluginComponent {
             }
 
             StyledText {
-                visible: !root.loading && root.data && root.data.tasks.length <= 0
+                visible: !root.loading && root.tasksData && root.tasksData.tasks.length <= 0
                 text: "Nothing to do..."
                 font.pixelSize: Theme.fontSizeSmall
                 color: Theme.surfaceText
@@ -137,7 +137,7 @@ PluginComponent {
 
                 // no tasks text
                 StyledText {
-                    visible: !root.loading && root.data && root.data.tasks.length <= 0
+                    visible: !root.loading && root.tasksData && root.tasksData.tasks.length <= 0
                     text: "Nothing to do..."
                     font.pixelSize: Theme.fontSizeSmall
                     color: Theme.surfaceText
@@ -147,7 +147,7 @@ PluginComponent {
 
                 // scrollable tasks list
                 Flickable {
-                    visible: !root.loading && root.data && root.data.tasks.length > 0
+                    visible: !root.loading && root.tasksData && root.tasksData.tasks.length > 0
                     anchors.fill: parent
                     contentWidth: parent.width
                     contentHeight: tasksGroupColumn.height
@@ -162,7 +162,7 @@ PluginComponent {
 
                         // group tasks by due date
                         Repeater {
-                            model: root.data.tasks
+                            model: root.tasksData.tasks
 
                             // column for each group
                             Column {
