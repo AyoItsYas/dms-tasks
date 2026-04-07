@@ -33,7 +33,7 @@ PluginComponent {
 
     function loadData() {
         loadDataProcessOutput = "";
-        loadDataProcess.command = ["python3", root.currentDirectory + "main.py", root.settings.caldavURL, root.settings.caldavUsername, root.settings.caldavPassword, root.settings.caldavCalendar, "0"];
+        loadDataProcess.command = ["python3", root.currentDirectory + "main.py", "load", root.settings.caldavURL, root.settings.caldavUsername, root.settings.caldavPassword, root.settings.caldavCalendar, "0"];
         loadDataProcess.running = true;
     }
 
@@ -76,8 +76,8 @@ PluginComponent {
 
             // current task
             StyledText {
-                visible: !root.loading
-                text: ((root.tasksData.completeCount / root.tasksData.totalCount) * 100).toFixed(0) + "% - " + Qt.formatDateTime(root.tasksData.currentTask.due, "hh:mm") + " : " + root.tasksData.currentTask.summary
+                visible: !root.loading && root.tasksData != null && root.tasksData.currentTask != null
+                text: root.tasksData != null && root.tasksData.currentTask != null ? ((root.tasksData.completeCount / root.tasksData.totalCount) * 100).toFixed(0) + "% - " + Qt.formatDateTime(root.tasksData.currentTask.due, "hh:mm") + " : " + root.tasksData.currentTask.summary : ""
                 font.pixelSize: Theme.fontSizeSmall
                 color: Theme.surfaceText
                 anchors.verticalCenter: parent.verticalCenter
@@ -93,7 +93,7 @@ PluginComponent {
             }
 
             StyledText {
-                visible: !root.loading && root.tasksData && root.tasksData.tasks.length <= 0
+                visible: !root.loading && root.tasksData && root.tasksData.tasks ? root.tasksData.tasks.length <= 0 : false
                 text: "Nothing to do..."
                 font.pixelSize: Theme.fontSizeSmall
                 color: Theme.surfaceText
@@ -139,7 +139,7 @@ PluginComponent {
 
                 // no tasks text
                 StyledText {
-                    visible: !root.loading && root.tasksData && root.tasksData.tasks.length <= 0
+                    visible: !root.loading && root.tasksData && root.tasksData.tasks ? root.tasksData.tasks.length <= 0 : false
                     text: "Nothing to do..."
                     font.pixelSize: Theme.fontSizeSmall
                     color: Theme.surfaceText
@@ -149,7 +149,7 @@ PluginComponent {
 
                 // scrollable tasks list
                 Flickable {
-                    visible: !root.loading && root.tasksData && root.tasksData.tasks.length > 0
+                    visible: !root.loading && root.tasksData && root.tasksData.tasks ? root.tasksData.tasks.length > 0 : false
                     anchors.fill: parent
                     contentWidth: parent.width
                     contentHeight: tasksGroupColumn.height

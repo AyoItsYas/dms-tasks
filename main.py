@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from caldav.base_client import CalendarResult
 
 
-DEBUG = bool(int(sys.argv[5]))
+DEBUG = bool(int(sys.argv.pop(-1)))
 
 
 def debug(*args: Any, **kwargs: Any):
@@ -40,14 +40,17 @@ def __main__(
     CALDAV_USERNAME: str,
     CALDAV_PASSWORD: str,
     CALDAV_CALENDAR: str,
-    LOCAL_TZ: str = datetime.now().astimezone().tzinfo,
+    *,
+    LOCAL_TZ: ZoneInfo = (
+        TZ if (TZ := datetime.now().astimezone().tzinfo) else UTC
+    ),  # pyright: ignore[reportArgumentType]
 ) -> dict[str, Any]:
     CALENDAR: CalendarResult = get_calendar(
         url=CALDAV_URL,
         username=CALDAV_USERNAME,
         password=CALDAV_PASSWORD,
         calendar_name=CALDAV_CALENDAR,
-    )
+    )  # pyright: ignore[reportCallIssue]
 
     TODO_EVENTS = CALENDAR.search(todo=True, include_completed=True)
 
@@ -70,7 +73,11 @@ def __main__(
         DUE = TODO_EVENT_COMPONENT.get("DUE")
         if DUE:
             DUE = DUE.dt.replace(
-                tzinfo=ZoneInfo(TODO_EVENT_COMPONENT.get("TZID")) if TODO_EVENT_COMPONENT.get("TZID") else LOCAL_TZ
+                tzinfo=(
+                    ZoneInfo(TODO_EVENT_COMPONENT.get("TZID"))
+                    if TODO_EVENT_COMPONENT.get("TZID")
+                    else LOCAL_TZ
+                )
             )
         else:
             ALL_DAY = True
@@ -79,7 +86,11 @@ def __main__(
             )
 
         DTSTAMP = TODO_EVENT_COMPONENT.get("DTSTAMP").dt.replace(
-            tzinfo=ZoneInfo(TODO_EVENT_COMPONENT.get("TZID")) if TODO_EVENT_COMPONENT.get("TZID") else LOCAL_TZ
+            tzinfo=(
+                ZoneInfo(TODO_EVENT_COMPONENT.get("TZID"))
+                if TODO_EVENT_COMPONENT.get("TZID")
+                else LOCAL_TZ
+            )
         )
 
         COMPLETE = False
@@ -134,11 +145,30 @@ def __main__(
     }
 
 
+def complete(
+    CALDAV_URL: str,
+    CALDAV_USERNAME: str,
+    CALDAV_PASSWORD: str,
+    CALDAV_CALENDAR: str,
+):
+    pass
+
+
 if __name__ == "__main__":
     data = {}
 
+    sys.argv.pop(0)  # remove the script name
+    MODE = sys.argv.pop(0)  # remove the mode
+
+    MODES = {
+        "load": __main__,
+        "complete": complete,
+    }
+
     try:
-        data = __main__(sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4])
+        data = MODES.get(MODE, __main__)(
+            *sys.argv
+        )  # pyright: ignore[reportArgumentType]
     except Exception as e:
         if DEBUG:
             raise e
