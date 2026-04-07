@@ -1,3 +1,5 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 // import Quickshell
 import Quickshell.Io
@@ -167,6 +169,7 @@ PluginComponent {
                             // column for each group
                             Column {
                                 id: taskColumn
+                                required property var modelData
                                 width: parent.width
                                 spacing: Theme.spacingS
 
@@ -175,8 +178,8 @@ PluginComponent {
                                 // group header with due date
                                 StyledText {
                                     width: parent.width
-                                    visible: groupTasks.length > 0
-                                    text: Qt.formatDateTime(groupTasks[0].due, "ddd, MMM d")
+                                    visible: taskColumn.groupTasks.length > 0
+                                    text: Qt.formatDateTime(taskColumn.groupTasks[0].due, "ddd, MMM d")
                                     font.pixelSize: Theme.fontSizeSmall
                                     color: Theme.surfaceVariantText
                                 }
@@ -186,11 +189,12 @@ PluginComponent {
 
                                     Row {
                                         id: taskRow
+                                        required property var modelData
                                         width: tasksGroupColumn.width
                                         spacing: Theme.spacingXS
 
                                         StyledText {
-                                            text: modelData.summary
+                                            text: taskRow.modelData.summary
                                             font.pixelSize: Theme.fontSizeSmall
                                             color: Theme.surfaceText
                                             elide: Text.ElideRight
@@ -205,7 +209,7 @@ PluginComponent {
 
                                             StyledText {
                                                 id: timestampText
-                                                text: modelData.allDay ? "NaN" : Qt.formatDateTime(new Date(modelData.due), "hh:mm")
+                                                text: taskRow.modelData.allDay ? "NaN" : Qt.formatDateTime(new Date(taskRow.modelData.due), "hh:mm")
                                                 font.pixelSize: Theme.fontSizeSmall
                                                 color: Theme.surfaceVariantText
                                             }
@@ -220,7 +224,7 @@ PluginComponent {
                                                 border.color: Theme.surfaceVariantText
                                                 anchors.verticalCenter: parent.verticalCenter
 
-                                                property bool checked: modelData.completed
+                                                property bool checked: taskRow.modelData.completed
 
                                                 DankIcon {
                                                     anchors.fill: parent
