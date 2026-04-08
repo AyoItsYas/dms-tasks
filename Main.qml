@@ -316,6 +316,7 @@ PluginComponent {
                                     onClicked: {
                                         root.toggleCalendarFilter(calendarPill.modelData);
                                     }
+                                    cursorShape: Qt.PointingHandCursor
                                 }
                             }
                         }
@@ -358,6 +359,7 @@ PluginComponent {
                                     root.loadSettings();
                                     root.loadData();
                                 }
+                                cursorShape: Qt.PointingHandCursor
                             }
                         }
                     }
@@ -498,6 +500,7 @@ PluginComponent {
                                                     color: Theme.primary
                                                     visible: parent.checked
                                                 }
+
 
                                                 MouseArea {
                                                     anchors.fill: parent
