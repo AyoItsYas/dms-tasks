@@ -45,90 +45,94 @@ def __main__(
     CALDAV_URL: str,
     CALDAV_USERNAME: str,
     CALDAV_PASSWORD: str,
-    CALDAV_CALENDAR: str,
+    CALDAV_CALENDARS: str,
 ) -> dict[str, Any]:
-    CALENDAR: CalendarResult = get_calendar(
-        url=CALDAV_URL,
-        username=CALDAV_USERNAME,
-        password=CALDAV_PASSWORD,
-        calendar_name=CALDAV_CALENDAR,
-    )  # pyright: ignore[reportCallIssue]
-
-    TODO_EVENTS = CALENDAR.search(todo=True, include_completed=True)
-
     DATA = []
+    NOW = datetime.now(LOCAL_TZ)
     TODAY = datetime.now(LOCAL_TZ).date()
 
     total_count, complete_count = 0, 0
-    for TODO_EVENT in TODO_EVENTS:
-        TODO_EVENT_COMPONENT = TODO_EVENT.get_icalendar_component()
 
-        if TODO_EVENT_COMPONENT.get("RELATED-TO"):
-            continue
+    for CALDAV_CALENDAR in CALDAV_CALENDARS.split(","):
+        CALENDAR: CalendarResult = get_calendar(
+            url=CALDAV_URL,
+            username=CALDAV_USERNAME,
+            password=CALDAV_PASSWORD,
+            calendar_name=CALDAV_CALENDAR,
+        )  # pyright: ignore[reportCallIssue]
 
-        debug(
-            TODO_EVENT_COMPONENT.get("SUMMARY"),
-            TODO_EVENT_COMPONENT,
-        )
+        TODO_EVENTS = CALENDAR.search(todo=True, include_completed=True)
 
-        ALL_DAY = False
-        DUE = TODO_EVENT_COMPONENT.get("DUE")
-        if DUE:
-            DUE = DUE.dt.replace(
+        for TODO_EVENT in TODO_EVENTS:
+            TODO_EVENT_COMPONENT = TODO_EVENT.get_icalendar_component()
+
+            if TODO_EVENT_COMPONENT.get("RELATED-TO"):
+                continue
+
+            debug(
+                TODO_EVENT_COMPONENT.get("SUMMARY"),
+                TODO_EVENT_COMPONENT,
+            )
+
+            ALL_DAY = False
+            DUE = TODO_EVENT_COMPONENT.get("DUE")
+            if DUE:
+                DUE = DUE.dt.replace(
+                    tzinfo=(
+                        ZoneInfo(TODO_EVENT_COMPONENT.get("TZID"))
+                        if TODO_EVENT_COMPONENT.get("TZID")
+                        else LOCAL_TZ
+                    )
+                )
+            else:
+                ALL_DAY = True
+                DUE = datetime.today().replace(
+                    hour=0, minute=0, second=0, microsecond=0, tzinfo=LOCAL_TZ
+                )
+
+            DTSTAMP = TODO_EVENT_COMPONENT.get("DTSTAMP").dt.replace(
                 tzinfo=(
                     ZoneInfo(TODO_EVENT_COMPONENT.get("TZID"))
                     if TODO_EVENT_COMPONENT.get("TZID")
                     else LOCAL_TZ
                 )
             )
-        else:
-            ALL_DAY = True
-            DUE = datetime.today().replace(
-                hour=0, minute=0, second=0, microsecond=0, tzinfo=LOCAL_TZ
-            )
 
-        DTSTAMP = TODO_EVENT_COMPONENT.get("DTSTAMP").dt.replace(
-            tzinfo=(
-                ZoneInfo(TODO_EVENT_COMPONENT.get("TZID"))
-                if TODO_EVENT_COMPONENT.get("TZID")
-                else LOCAL_TZ
-            )
-        )
+            COMPLETE = False
+            STATUS = TODO_EVENT_COMPONENT.get("STATUS")
 
-        COMPLETE = False
-        STATUS = TODO_EVENT_COMPONENT.get("STATUS")
+            if DTSTAMP.date() == TODAY:
+                total_count += 1
+                complete_count += 1
 
-        if DTSTAMP.date() == TODAY:
-            total_count += 1
-            complete_count += 1
+                if STATUS == "COMPLETED":
+                    COMPLETE = True
 
-            if STATUS == "COMPLETED":
-                COMPLETE = True
+            if STATUS == "NEEDS-ACTION" and DUE.date() <= TODAY:
+                total_count += 1
 
-        if STATUS == "NEEDS-ACTION" and DUE.date() <= TODAY:
-            total_count += 1
+            EVENT = {
+                "uid": TODO_EVENT_COMPONENT.get("UID"),
+                "summary": TODO_EVENT_COMPONENT.get("SUMMARY"),
+                "due": DUE,
+                "completed": COMPLETE,
+                "allDay": ALL_DAY,
+                "priority": TODO_EVENT_COMPONENT.get("PRIORITY", 9),
+                'calendar': CALDAV_CALENDAR,
+            }
 
-        EVENT = {
-            "uid": TODO_EVENT_COMPONENT.get("UID"),
-            "summary": TODO_EVENT_COMPONENT.get("SUMMARY"),
-            "due": DUE,
-            "completed": COMPLETE,
-            "allDay": ALL_DAY,
-            "priority": TODO_EVENT_COMPONENT.get("PRIORITY", 9),
-        }
+            DATA.append(EVENT)
 
-        DATA.append(EVENT)
-
-    DATA.sort(key=lambda x: x.get("due"))
-
-    # get the system time and use it to find the current task
-    NOW = datetime.now(LOCAL_TZ)
+        DATA.sort(key=lambda x: x.get("due"))
 
     def current_filter(task: dict[str, Any]) -> bool:
         DUE = task.get("due")
 
         # return False if there is no due date or the task is completed
         if not DUE or task.get("completed"):
+            return False
+
+        if task.get("allDay"):
             return False
 
         # return False if the due date is not today

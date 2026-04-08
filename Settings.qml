@@ -27,7 +27,13 @@ PluginSettings {
 
     StringSetting {
         settingKey: "caldavCalendar"
-        label: "CalDav Calendar"
+        label: "Main CalDav Calendar"
+        defaultValue: ""
+    }
+
+    StringSetting {
+        settingKey: "caldavCalendars"
+        label: "Secondary CalDav Calendars (comma-separated)"
         defaultValue: ""
     }
 

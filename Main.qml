@@ -21,6 +21,7 @@ PluginComponent {
             caldavUsername: pluginData.caldavUsername,
             caldavPassword: pluginData.caldavPassword,
             caldavCalendar: pluginData.caldavCalendar,
+            caldavCalendars: pluginData.caldavCalendars ? pluginData.caldavCalendars.split(",").map(s => s.trim()) : [pluginData.caldavCalendar],
             refreshInterval: isNaN(Number(pluginData.refreshInterval)) ? 60 : Number(pluginData.refreshInterval) // default to 1 minute
         })
 
@@ -31,6 +32,7 @@ PluginComponent {
 
     property bool loadDataProcessError: false
     property string loadDataProcessOutput: ""
+    property var loadDataTimestamp: 0
 
     property bool toggleCompleteProcessError: false
     property string toggleCompleteProcessOutput: ""
@@ -40,17 +42,43 @@ PluginComponent {
         return Qt.resolvedUrl(".").toString().replace(/^file:\/\//, "");
     }
 
+    // calander's to filter
+
+    property var calendarFilter: []
+    property var calendarFilterInactive: []
+
+    function toggleCalendarFilter(calendar) {
+        if (calendar == root.settings.caldavCalendar) {
+            root.showToastError("Cannot disable main calendar filter!");
+            return;
+        }
+
+        if (root.calendarFilter.includes(calendar)) {
+            root.calendarFilter = root.calendarFilter.filter(c => c !== calendar);
+            root.calendarFilterInactive = root.calendarFilterInactive.concat([calendar]);
+        } else {
+            root.calendarFilterInactive = root.calendarFilterInactive.filter(c => c !== calendar);
+            root.calendarFilter = root.calendarFilter.concat([calendar]);
+        }
+
+        pluginService.savePluginData(root.pluginId, 'calendarFilter', root.calendarFilter);
+        pluginService.savePluginData(root.pluginId, 'calendarFilterInactive', root.calendarFilterInactive);
+
+        root.loadData();
+    }
+
     function showToastError(message) {
         ToastService.showError("Tasks Plugin: " + message);
     }
 
+    // loadSettings
     function loadSettings() {
         if (!pluginData) {
             root.showToastError("Failed to load plugin settings!");
             return;
         }
 
-        if (!pluginData.caldavURL || !pluginData.caldavUsername || !pluginData.caldavPassword || !pluginData.caldavCalendar) {
+        if (!pluginData.caldavURL || !pluginData.caldavUsername || !pluginData.caldavPassword || !pluginData.caldavCalendar || isNaN(Number(pluginData.refreshInterval)) || Number(pluginData.refreshInterval) <= 0) {
             root.showToastError("Please fill in all required settings!");
             return;
         }
@@ -60,8 +88,12 @@ PluginComponent {
             caldavUsername: pluginData.caldavUsername,
             caldavPassword: pluginData.caldavPassword,
             caldavCalendar: pluginData.caldavCalendar,
+            caldavCalendars: pluginData.caldavCalendars ? pluginData.caldavCalendars.split(",").map(s => s.trim()) : [pluginData.caldavCalendar],
             refreshInterval: isNaN(Number(pluginData.refreshInterval)) ? 60 : Number(pluginData.refreshInterval) // default to 1 minute
         };
+
+        root.calendarFilter = pluginService.loadPluginData(root.pluginId, 'calendarFilter') || [pluginData.caldavCalendar];
+        root.calendarFilterInactive = pluginService.loadPluginData(root.pluginId, 'calendarFilterInactive') || [pluginData.caldavCalendars];
     }
 
     Process {
@@ -86,6 +118,7 @@ PluginComponent {
                 if (json && json.success) {
                     root.tasksData = json.data || {};
                     root.loading = false;
+                    root.loadDataTimestamp = Date.now();
                 } else {
                     throw new Error(json && json.message ? json.message : "Failed to load tasks data!");
                 }
@@ -107,7 +140,7 @@ PluginComponent {
             return;
         }
 
-        loadDataProcess.command = ["python3", root.currentDirectory + "main.py", "load", root.settings.caldavURL, root.settings.caldavUsername, root.settings.caldavPassword, root.settings.caldavCalendar, "0"];
+        loadDataProcess.command = ["python3", root.currentDirectory + "main.py", "load", root.settings.caldavURL, root.settings.caldavUsername, root.settings.caldavPassword, root.calendarFilter.join(","), "0"];
         loadDataProcess.running = true;
     }
 
@@ -174,7 +207,7 @@ PluginComponent {
             return;
         }
 
-        toggleCompleteProcess.command = ["python3", root.currentDirectory + "main.py", "toggle_complete", root.settings.caldavURL, root.settings.caldavUsername, root.settings.caldavPassword, root.settings.caldavCalendar, task.uid, "0"];
+        toggleCompleteProcess.command = ["python3", root.currentDirectory + "main.py", "toggle_complete", root.settings.caldavURL, root.settings.caldavUsername, root.settings.caldavPassword, task.calendar, task.uid, "0"];
         toggleCompleteProcess.running = true;
     }
 
@@ -230,6 +263,66 @@ PluginComponent {
             headerText: "Tasks"
             detailsText: "Your upcoming tasks"
             showCloseButton: true
+
+            Row {
+                height: popoutColumn.detailsHeight
+                width: parent.width - Theme.spacingS
+
+                Row {
+                    visible: !root.loading && root.calendarFilter && root.calendarFilter.length > 0
+                    width: parent.width - (Theme.spacingS * 2)
+                    spacing: Theme.spacingXS
+                    anchors.left: parent.left
+                    padding: Theme.spacingS
+                    anchors.verticalCenter: parent.verticalCenter
+
+                    Repeater {
+                        id: calendarFilterRepeater
+                        model: root.calendarFilter.concat(root.calendarFilterInactive)
+
+                        StyledRect {
+                            id: calendarPill
+                            width: calendarPillText.width + (Theme.spacingS * 2)
+                            height: 20
+                            color: active ? Theme.surfaceVariantText : "transparent"
+                            border.width: 1
+                            border.color: active ? "transparent" : Theme.surfaceVariantText
+                            radius: Theme.cornerRadius
+
+                            required property var modelData
+
+                            property bool active: root.calendarFilter.includes(modelData)
+
+                            StyledText {
+                                id: calendarPillText
+                                height: 20
+                                text: calendarPill.modelData
+                                font.pixelSize: Theme.fontSizeSmall
+                                anchors.horizontalCenter: parent.horizontalCenter
+                                anchors.verticalCenter: parent.verticalCenter
+                                color: calendarPill.active ? Theme.onPrimary : Theme.surfaceVariantText
+
+                                MouseArea {
+                                    anchors.fill: parent
+                                    onClicked: {
+                                        root.toggleCalendarFilter(calendarPill.modelData);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                StyledText {
+                    id: refreshTimestampText
+                    text: "Updated: " + Qt.formatDateTime(new Date(root.loadDataTimestamp), "hh:mm")
+                    font.pixelSize: Theme.fontSizeSmall * 0.8
+                    font.family: "monospace"
+                    color: Theme.surfaceVariantText
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                }
+            }
 
             Item {
                 width: parent.width
@@ -337,7 +430,7 @@ PluginComponent {
 
                                             StyledText {
                                                 id: timestampText
-                                                text: taskRow.modelData.allDay ? "NaN" : Qt.formatDateTime(new Date(taskRow.modelData.due), "hh:mm")
+                                                text: taskRow.modelData.allDay ? "XX:XX" : Qt.formatDateTime(new Date(taskRow.modelData.due), "hh:mm")
                                                 font.pixelSize: Theme.fontSizeSmall * 0.8
                                                 font.family: "monospace"
                                                 color: Theme.surfaceVariantText
