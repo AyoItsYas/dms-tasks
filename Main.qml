@@ -93,7 +93,12 @@ PluginComponent {
         };
 
         root.calendarFilter = pluginService.loadPluginData(root.pluginId, 'calendarFilter') || [pluginData.caldavCalendar];
-        root.calendarFilterInactive = pluginService.loadPluginData(root.pluginId, 'calendarFilterInactive') || [pluginData.caldavCalendars];
+        root.calendarFilterInactive = pluginService.loadPluginData(root.pluginId, 'calendarFilterInactive') || [];
+
+        if (root.calendarFilter.length + root.calendarFilterInactive.length != root.settings.caldavCalendars.length + 1) {
+            root.calendarFilter = [root.settings.caldavCalendar];
+            root.calendarFilterInactive = root.settings.caldavCalendars
+        }
     }
 
     Process {
