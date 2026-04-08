@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import Any
     from caldav.base_client import CalendarResult
+from datetime import timedelta
 
 
 DEBUG = bool(int(sys.argv.pop(-1)))
@@ -25,6 +26,11 @@ def debug(*args: Any, **kwargs: Any):
 
 
 UTC = ZoneInfo("UTC")
+LOCAL_TZ = TZ if (TZ := datetime.now().astimezone().tzinfo) else UTC
+
+
+SUCCESS_PAYLOAD: dict[str, Any] = {"success": True}
+FAILED_PAYLOAD: dict[str, Any] = {"success": False}
 
 
 class DateTimeEncoder(json.JSONEncoder):
@@ -40,10 +46,6 @@ def __main__(
     CALDAV_USERNAME: str,
     CALDAV_PASSWORD: str,
     CALDAV_CALENDAR: str,
-    *,
-    LOCAL_TZ: ZoneInfo = (
-        TZ if (TZ := datetime.now().astimezone().tzinfo) else UTC
-    ),  # pyright: ignore[reportArgumentType]
 ) -> dict[str, Any]:
     CALENDAR: CalendarResult = get_calendar(
         url=CALDAV_URL,
@@ -112,6 +114,7 @@ def __main__(
             "due": DUE,
             "completed": COMPLETE,
             "allDay": ALL_DAY,
+            "priority": TODO_EVENT_COMPONENT.get("PRIORITY", 9),
         }
 
         DATA.append(EVENT)
@@ -120,12 +123,25 @@ def __main__(
 
     # get the system time and use it to find the current task
     NOW = datetime.now(LOCAL_TZ)
-    CURRENT = None
 
-    for TASK in DATA:
-        if TASK["due"] and TASK["due"] > NOW:
-            CURRENT = TASK
-            break
+    def current_filter(task: dict[str, Any]) -> bool:
+        DUE = task.get("due")
+
+        # return False if there is no due date or the task is completed
+        if not DUE or task.get("completed"):
+            return False
+
+        # return False if the due date is not today
+        if DUE.date() != TODAY:
+            return False
+
+        # return True if the due date is in the past or now
+        if DUE <= NOW:
+            return True
+
+        return False
+
+    CURRENT = next(filter(current_filter, DATA), None)
 
     # group tasks by date
 
@@ -145,13 +161,58 @@ def __main__(
     }
 
 
-def complete(
+def toggle_complete(
     CALDAV_URL: str,
     CALDAV_USERNAME: str,
     CALDAV_PASSWORD: str,
     CALDAV_CALENDAR: str,
+    UID: str,
 ):
-    pass
+    CALENDAR: CalendarResult = get_calendar(
+        url=CALDAV_URL,
+        username=CALDAV_USERNAME,
+        password=CALDAV_PASSWORD,
+        calendar_name=CALDAV_CALENDAR,
+    )  # pyright: ignore[reportCallIssue]
+
+    TODO_EVENTS = CALENDAR.search(todo=True, include_completed=True, uid=UID)
+
+    debug("Completing task with UID:", UID)
+
+    for TODO_EVENT in TODO_EVENTS:
+        TODO_EVENT_COMPONENT = TODO_EVENT.get_icalendar_component()
+        debug(TODO_EVENT_COMPONENT.get("SUMMARY"), TODO_EVENT_COMPONENT)
+
+        RRULE = TODO_EVENT_COMPONENT.get("RRULE")
+
+        COMPLETE = TODO_EVENT_COMPONENT.get("STATUS") == "COMPLETED"
+
+        with TODO_EVENT.edit_icalendar_component() as COMPONENT:
+            if COMPLETE:
+                COMPONENT["STATUS"] = "NEEDS-ACTION"
+                del COMPONENT["COMPLETED"]
+            else:
+                if RRULE:
+                    if RRULE.get("FREQ") == ["DAILY"]:
+                        due_date = COMPONENT['DUE'].dt
+                        COMPONENT['DUE'].dt = due_date + timedelta(days=1)
+                        COMPONENT["DTSTAMP"] = (
+                            datetime.now(UTC).replace(microsecond=0).strftime("%Y%m%dT%H%M%SZ")
+                        )
+                    else:
+                        raise NotImplementedError("Not implemented toggle complete for non-daily repeating tasks")
+                else:
+                    COMPONENT["STATUS"] = "COMPLETED"
+                    COMPONENT["COMPLETED"] = (
+                        datetime.now(UTC).replace(microsecond=0).strftime("%Y%m%dT%H%M%SZ")
+                    )
+
+        TODO_EVENT.save()
+
+        TODO_EVENT_COMPONENT = TODO_EVENT.get_icalendar_component()
+        debug(TODO_EVENT_COMPONENT.get("SUMMARY"), TODO_EVENT_COMPONENT)
+
+    return SUCCESS_PAYLOAD
 
 
 if __name__ == "__main__":
@@ -162,16 +223,19 @@ if __name__ == "__main__":
 
     MODES = {
         "load": __main__,
-        "complete": complete,
+        "toggle_complete": toggle_complete,
     }
 
+    data = FAILED_PAYLOAD
     try:
         data = MODES.get(MODE, __main__)(
             *sys.argv
         )  # pyright: ignore[reportArgumentType]
+        data = {**SUCCESS_PAYLOAD, "data": data}
     except Exception as e:
         if DEBUG:
             raise e
+        data["message"] = str(e)
 
     print(
         json.dumps(

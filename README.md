@@ -8,9 +8,9 @@ Features:
 - Displays the current task in the timeline
 - Shows a list of upcoming tasks in a popout
 - A completion rate to track your progress for the day
+- Support for marking tasks as complete from the UI
 
 Planned:
-- Support for marking tasks as complete from the UI
 - Support for creating new tasks from the UI
 - Support for configurable template strings on UI elements
 - Support for tracking time spent on a task

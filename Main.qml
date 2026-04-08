@@ -1,10 +1,14 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
+// import QtCore
+// import QtCore.Private
 // import Quickshell
+
 import Quickshell.Io
+
 import qs.Common
-// import qs.Services
+import qs.Services
 import qs.Widgets
 import qs.Modules.Plugins
 
@@ -22,19 +26,42 @@ PluginComponent {
 
     // data loading
     property var tasksData
+
     property bool loading: true
+
     property bool loadDataProcessError: false
     property string loadDataProcessOutput: ""
+
+    property bool toggleCompleteProcessError: false
+    property string toggleCompleteProcessOutput: ""
 
     // misc.
     property string currentDirectory: {
         return Qt.resolvedUrl(".").toString().replace(/^file:\/\//, "");
     }
 
-    function loadData() {
-        loadDataProcessOutput = "";
-        loadDataProcess.command = ["python3", root.currentDirectory + "main.py", "load", root.settings.caldavURL, root.settings.caldavUsername, root.settings.caldavPassword, root.settings.caldavCalendar, "0"];
-        loadDataProcess.running = true;
+    function showToastError(message) {
+        ToastService.showError("Tasks Plugin: " + message);
+    }
+
+    function loadSettings() {
+        if (!pluginData) {
+            root.showToastError("Failed to load plugin settings!");
+            return;
+        }
+
+        if (!pluginData.caldavURL || !pluginData.caldavUsername || !pluginData.caldavPassword || !pluginData.caldavCalendar) {
+            root.showToastError("Please fill in all required settings!");
+            return;
+        }
+
+        root.settings = {
+            caldavURL: pluginData.caldavURL,
+            caldavUsername: pluginData.caldavUsername,
+            caldavPassword: pluginData.caldavPassword,
+            caldavCalendar: pluginData.caldavCalendar,
+            refreshInterval: isNaN(Number(pluginData.refreshInterval)) ? 60 : Number(pluginData.refreshInterval) // default to 1 minute
+        };
     }
 
     Process {
@@ -45,29 +72,110 @@ PluginComponent {
                 root.loadDataProcessOutput += data + "\n";
             }
         }
-        onExited: {
-            root.loading = false;
+        onStarted: () => {
+            root.loading = true;
+            root.loadDataProcessError = false;
+            root.loadDataProcessOutput = "";
 
+            loadDataProcess.running = true;
+        }
+        onExited: () => {
             try {
                 var json = JSON.parse(root.loadDataProcessOutput.trim());
 
-                root.tasksData = json || {};
-
-                root.loadDataProcessError = false;
+                if (json && json.success) {
+                    root.tasksData = json.data || {};
+                    root.loading = false;
+                } else {
+                    throw new Error(json && json.message ? json.message : "Failed to load tasks data!");
+                }
             } catch (e) {
                 console.log("JSON parse error:", e);
                 console.log("Raw output:", root.loadDataProcessOutput);
 
+                root.showToastError(e.message);
+
                 root.loadDataProcessError = true;
             }
+
+            loadDataProcess.running = false;
         }
     }
 
+    function loadData() {
+        if (loadDataProcess.running) {
+            return;
+        }
+
+        loadDataProcess.command = ["python3", root.currentDirectory + "main.py", "load", root.settings.caldavURL, root.settings.caldavUsername, root.settings.caldavPassword, root.settings.caldavCalendar, "0"];
+        loadDataProcess.running = true;
+    }
+
     Timer {
+        id: refreshTimer
         interval: root.settings.refreshInterval * 1000
-        running: true
+        running: false
         repeat: true
-        onTriggered: root.loadData()
+        onTriggered: {
+            root.loadSettings();
+            root.loadData();
+        }
+    }
+
+    Component.onCompleted: {
+        Qt.callLater(() => {
+            root.loadSettings();
+            root.loadData();
+            refreshTimer.running = true;
+        });
+    }
+
+    Process {
+        id: toggleCompleteProcess
+
+        stdout: SplitParser {
+            onRead: data => {
+                root.toggleCompleteProcessOutput += data + "\n";
+            }
+        }
+        onStarted: () => {
+            root.loading = true;
+            root.toggleCompleteProcessError = false;
+            root.toggleCompleteProcessOutput = "";
+
+            toggleCompleteProcess.running = true;
+        }
+        onExited: () => {
+            try {
+                var json = JSON.parse(root.toggleCompleteProcessOutput.trim());
+
+                if (json && json.success) {
+                    root.loadData();
+                } else {
+                    throw new Error(json && json.message ? json.message : "Failed to toggle task completion!");
+                }
+            } catch (e) {
+                console.log("JSON parse error:", e);
+                console.log("Raw output:", root.toggleCompleteProcessOutput);
+                root.showToastError(e.message);
+            }
+
+            toggleCompleteProcess.running = false;
+        }
+    }
+
+    function toggleComplete(task) {
+        if (!task || !task.uid) {
+            root.showToastError("Unable to update task: missing UID");
+            return;
+        }
+
+        if (toggleCompleteProcess.running) {
+            return;
+        }
+
+        toggleCompleteProcess.command = ["python3", root.currentDirectory + "main.py", "toggle_complete", root.settings.caldavURL, root.settings.caldavUsername, root.settings.caldavPassword, root.settings.caldavCalendar, task.uid, "0"];
+        toggleCompleteProcess.running = true;
     }
 
     horizontalBarPill: Component {
@@ -191,6 +299,7 @@ PluginComponent {
                                         id: taskRow
                                         required property var modelData
                                         width: tasksGroupColumn.width
+                                        height: Theme.fontSizeSmall * 1.1
                                         spacing: Theme.spacingXS
 
                                         StyledText {
@@ -198,7 +307,8 @@ PluginComponent {
                                             font.pixelSize: Theme.fontSizeSmall
                                             color: Theme.surfaceText
                                             elide: Text.ElideRight
-                                            width: parent.width - detailsRow.implicitWidth - Theme.spacingXL
+                                            width: parent.width - detailsRow.width - Theme.spacingXL
+                                            anchors.verticalCenter: parent.verticalCenter
                                         }
 
                                         // task details
@@ -208,17 +318,38 @@ PluginComponent {
                                             height: parent.height
 
                                             StyledText {
+                                                id: priorityText
+                                                text: taskRow.modelData.priority.toString()
+                                                font.pixelSize: Theme.fontSizeSmall * 0.8
+                                                font.family: "monospace"
+                                                color: if (taskRow.modelData.priority == 0)
+                                                    Theme.surfaceVariantText
+                                                else if (taskRow.modelData.priority == 1)
+                                                    '#ff7066'
+                                                else if (taskRow.modelData.priority <= 5)
+                                                    "#ffb95b"
+                                                else if (taskRow.modelData.priority <= 9)
+                                                    "#86b7ff"
+                                                else
+                                                    Theme.surfaceVariantText
+                                                anchors.verticalCenter: parent.verticalCenter
+                                            }
+
+                                            StyledText {
                                                 id: timestampText
                                                 text: taskRow.modelData.allDay ? "NaN" : Qt.formatDateTime(new Date(taskRow.modelData.due), "hh:mm")
-                                                font.pixelSize: Theme.fontSizeSmall
+                                                font.pixelSize: Theme.fontSizeSmall * 0.8
+                                                font.family: "monospace"
                                                 color: Theme.surfaceVariantText
+                                                anchors.verticalCenter: parent.verticalCenter
                                             }
 
                                             // checkbox
-                                            Rectangle {
-                                                width: Theme.fontSizeSmall * 0.70
+                                            StyledRect {
+                                                visible: true
+                                                width: 10
                                                 height: width
-                                                radius: 0
+                                                radius: 1
                                                 color: "transparent"
                                                 border.width: 1
                                                 border.color: Theme.surfaceVariantText
@@ -233,6 +364,14 @@ PluginComponent {
                                                     size: parent.width
                                                     color: Theme.primary
                                                     visible: parent.checked
+                                                }
+
+                                                MouseArea {
+                                                    anchors.fill: parent
+                                                    enabled: !root.loading && !toggleCompleteProcess.running
+                                                    onClicked: {
+                                                        root.toggleComplete(taskRow.modelData);
+                                                    }
                                                 }
                                             }
                                         }
