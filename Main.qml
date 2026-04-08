@@ -44,6 +44,7 @@ PluginComponent {
 
     // calander's to filter
 
+    property int totalCalendarCount: 0
     property var calendarFilter: []
     property var calendarFilterInactive: []
 
@@ -92,12 +93,14 @@ PluginComponent {
             refreshInterval: isNaN(Number(pluginData.refreshInterval)) ? 60 : Number(pluginData.refreshInterval) // default to 1 minute
         };
 
+        root.totalCalendarCount = root.settings.caldavCalendars.length + 1;
+
         root.calendarFilter = pluginService.loadPluginData(root.pluginId, 'calendarFilter') || [pluginData.caldavCalendar];
         root.calendarFilterInactive = pluginService.loadPluginData(root.pluginId, 'calendarFilterInactive') || [];
 
-        if (root.calendarFilter.length + root.calendarFilterInactive.length != root.settings.caldavCalendars.length + 1) {
+        if (root.totalCalendarCount != root.settings.caldavCalendars.length + 1) {
             root.calendarFilter = [root.settings.caldavCalendar];
-            root.calendarFilterInactive = root.settings.caldavCalendars
+            root.calendarFilterInactive = root.settings.caldavCalendars;
         }
     }
 
@@ -274,8 +277,9 @@ PluginComponent {
                 width: parent.width - Theme.spacingS
 
                 Row {
+                    id: calendarFilterRow
                     visible: !root.loading && root.calendarFilter && root.calendarFilter.length > 0
-                    width: parent.width - (Theme.spacingS * 2)
+                    width: parent.width - (Theme.spacingS * 2) - refreshRow.width
                     spacing: Theme.spacingXS
                     anchors.left: parent.left
                     padding: Theme.spacingS
@@ -301,7 +305,7 @@ PluginComponent {
                             StyledText {
                                 id: calendarPillText
                                 height: 20
-                                text: calendarPill.modelData
+                                text: root.totalCalendarCount >= 4 ? calendarPill.modelData.substring(0, 3).toUpperCase() : calendarPill.modelData
                                 font.pixelSize: Theme.fontSizeSmall
                                 anchors.horizontalCenter: parent.horizontalCenter
                                 anchors.verticalCenter: parent.verticalCenter
@@ -318,14 +322,45 @@ PluginComponent {
                     }
                 }
 
-                StyledText {
-                    id: refreshTimestampText
-                    text: "Updated: " + Qt.formatDateTime(new Date(root.loadDataTimestamp), "hh:mm")
-                    font.pixelSize: Theme.fontSizeSmall * 0.8
-                    font.family: "monospace"
-                    color: Theme.surfaceVariantText
+                Row {
+                    id: refreshRow
+                    width: refreshTimestampText.width + 10 + Theme.spacingS
+                    height: parent.height
+                    spacing: Theme.spacingS
                     anchors.right: parent.right
-                    anchors.verticalCenter: parent.verticalCenter
+                    // anchors.verticalCenter: parent.verticalCenter
+
+                    StyledText {
+                        id: refreshTimestampText
+                        text: Qt.formatDateTime(new Date(root.loadDataTimestamp), "hh:mm")
+                        font.pixelSize: Theme.fontSizeSmall * 0.8
+                        font.family: "monospace"
+                        color: Theme.surfaceVariantText
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+
+                    Rectangle {
+                        width: refreshIcon.width
+                        height: width
+                        color: "transparent"
+                        anchors.verticalCenter: parent.verticalCenter
+
+                        DankIcon {
+                            id: refreshIcon
+                            name: "refresh"
+                            size: Theme.fontSizeSmall
+                            color: Theme.primary
+
+                            MouseArea {
+                                anchors.fill: parent
+                                enabled: !root.loading && !toggleCompleteProcess.running
+                                onClicked: {
+                                    root.loadSettings();
+                                    root.loadData();
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
@@ -405,7 +440,7 @@ PluginComponent {
                                             font.pixelSize: Theme.fontSizeSmall
                                             color: Theme.surfaceText
                                             elide: Text.ElideRight
-                                            width: parent.width - detailsRow.width - Theme.spacingXL
+                                            width: parent.width - detailsRow.width - Theme.spacingL - Theme.spacingXS
                                             anchors.verticalCenter: parent.verticalCenter
                                         }
 
