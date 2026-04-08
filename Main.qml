@@ -22,20 +22,50 @@ PluginComponent {
             caldavPassword: pluginData.caldavPassword,
             caldavCalendar: pluginData.caldavCalendar,
             caldavCalendars: pluginData.caldavCalendars ? pluginData.caldavCalendars.split(",").map(s => s.trim()) : [pluginData.caldavCalendar],
-            refreshInterval: isNaN(Number(pluginData.refreshInterval)) ? 60 : Number(pluginData.refreshInterval) // default to 1 minute
+            shiftDueTimeDelta: isNaN(Number(pluginData.shiftDueTimeDelta)) ? 15 : Number(pluginData.shiftDueTimeDelta) // default to 15 minutes
+            ,
+            refreshInterval: isNaN(Number(pluginData.refreshInterval)) ? 1 : Number(pluginData.refreshInterval) // default to 1 minute
         })
+
+    // loadSettings
+    function loadSettings() {
+        if (!pluginData) {
+            root.showToastError("Failed to load plugin settings!");
+            return;
+        }
+
+        if (!pluginData.caldavURL || !pluginData.caldavUsername || !pluginData.caldavPassword || !pluginData.caldavCalendar || isNaN(Number(pluginData.refreshInterval)) || Number(pluginData.refreshInterval) <= 0) {
+            root.showToastError("Please fill in all required settings!");
+            return;
+        }
+
+        root.settings = {
+            caldavURL: pluginData.caldavURL,
+            caldavUsername: pluginData.caldavUsername,
+            caldavPassword: pluginData.caldavPassword,
+            caldavCalendar: pluginData.caldavCalendar,
+            caldavCalendars: pluginData.caldavCalendars ? pluginData.caldavCalendars.split(",").map(s => s.trim()) : [pluginData.caldavCalendar],
+            shiftDueTimeDelta: isNaN(Number(pluginData.shiftDueTimeDelta)) ? 15 : Number(pluginData.shiftDueTimeDelta) // default to 15 minutes
+            ,
+            refreshInterval: isNaN(Number(pluginData.refreshInterval)) ? 1 : Number(pluginData.refreshInterval) // default to 1 minute
+        };
+
+        root.totalCalendarCount = root.settings.caldavCalendars.length + 1;
+
+        root.tasksData = pluginService.loadPluginData(root.pluginId, 'tasksData') || {};
+        root.calendarFilter = pluginService.loadPluginData(root.pluginId, 'calendarFilter') || [pluginData.caldavCalendar];
+        root.calendarFilterInactive = pluginService.loadPluginData(root.pluginId, 'calendarFilterInactive') || [];
+
+        if (root.totalCalendarCount != root.settings.caldavCalendars.length + 1) {
+            root.calendarFilter = [root.settings.caldavCalendar];
+            root.calendarFilterInactive = root.settings.caldavCalendars;
+        }
+    }
 
     // data loading
     property var tasksData
-
-    property bool loading: true
-
-    property bool loadDataProcessError: false
-    property string loadDataProcessOutput: ""
+    property bool loading: false
     property var loadDataTimestamp: 0
-
-    property bool toggleCompleteProcessError: false
-    property string toggleCompleteProcessOutput: ""
 
     // misc.
     property string currentDirectory: {
@@ -43,7 +73,6 @@ PluginComponent {
     }
 
     // calander's to filter
-
     property int totalCalendarCount: 0
     property var calendarFilter: []
     property var calendarFilterInactive: []
@@ -72,79 +101,48 @@ PluginComponent {
         ToastService.showError("Tasks Plugin: " + message);
     }
 
-    // loadSettings
-    function loadSettings() {
-        if (!pluginData) {
-            root.showToastError("Failed to load plugin settings!");
-            return;
-        }
-
-        if (!pluginData.caldavURL || !pluginData.caldavUsername || !pluginData.caldavPassword || !pluginData.caldavCalendar || isNaN(Number(pluginData.refreshInterval)) || Number(pluginData.refreshInterval) <= 0) {
-            root.showToastError("Please fill in all required settings!");
-            return;
-        }
-
-        root.settings = {
-            caldavURL: pluginData.caldavURL,
-            caldavUsername: pluginData.caldavUsername,
-            caldavPassword: pluginData.caldavPassword,
-            caldavCalendar: pluginData.caldavCalendar,
-            caldavCalendars: pluginData.caldavCalendars ? pluginData.caldavCalendars.split(",").map(s => s.trim()) : [pluginData.caldavCalendar],
-            refreshInterval: isNaN(Number(pluginData.refreshInterval)) ? 60 : Number(pluginData.refreshInterval) // default to 1 minute
-        };
-
-        root.totalCalendarCount = root.settings.caldavCalendars.length + 1;
-
-        root.calendarFilter = pluginService.loadPluginData(root.pluginId, 'calendarFilter') || [pluginData.caldavCalendar];
-        root.calendarFilterInactive = pluginService.loadPluginData(root.pluginId, 'calendarFilterInactive') || [];
-
-        if (root.totalCalendarCount != root.settings.caldavCalendars.length + 1) {
-            root.calendarFilter = [root.settings.caldavCalendar];
-            root.calendarFilterInactive = root.settings.caldavCalendars;
-        }
-    }
-
     Process {
         id: loadDataProcess
 
+        property string output: ""
+
         stdout: SplitParser {
             onRead: data => {
-                root.loadDataProcessOutput += data + "\n";
+                loadDataProcess.output += data + "\n";
             }
         }
         onStarted: () => {
             root.loading = true;
-            root.loadDataProcessError = false;
-            root.loadDataProcessOutput = "";
-
+            loadDataProcess.output = "";
             loadDataProcess.running = true;
         }
         onExited: () => {
             try {
-                var json = JSON.parse(root.loadDataProcessOutput.trim());
+                var json = JSON.parse(loadDataProcess.output.trim());
 
                 if (json && json.success) {
                     root.tasksData = json.data || {};
-                    root.loading = false;
                     root.loadDataTimestamp = Date.now();
+
+                    PluginService.savePluginData(root.pluginId, 'tasksData', {});
+                    PluginService.savePluginData(root.pluginId, 'tasksData', root.tasksData);
                 } else {
                     throw new Error(json && json.message ? json.message : "Failed to load tasks data!");
                 }
             } catch (e) {
                 console.log("JSON parse error:", e);
-                console.log("Raw output:", root.loadDataProcessOutput);
+                console.log("Raw output:", loadDataProcess.output);
 
                 root.showToastError(e.message);
-
-                root.loadDataProcessError = true;
             }
 
+            root.loading = false;
             loadDataProcess.running = false;
         }
     }
 
     function loadData() {
-        if (loadDataProcess.running) {
+        if (loadDataProcess.running || root.loading) {
             return;
         }
 
@@ -154,7 +152,7 @@ PluginComponent {
 
     Timer {
         id: refreshTimer
-        interval: root.settings.refreshInterval * 1000
+        interval: root.settings.refreshInterval * 10000
         running: false
         repeat: true
         onTriggered: {
@@ -167,6 +165,7 @@ PluginComponent {
         Qt.callLater(() => {
             root.loadSettings();
             root.loadData();
+
             refreshTimer.running = true;
         });
     }
@@ -174,49 +173,99 @@ PluginComponent {
     Process {
         id: toggleCompleteProcess
 
+        property string output: ""
+
         stdout: SplitParser {
             onRead: data => {
-                root.toggleCompleteProcessOutput += data + "\n";
+                toggleCompleteProcess.output += data + "\n";
             }
         }
+
         onStarted: () => {
             root.loading = true;
-            root.toggleCompleteProcessError = false;
-            root.toggleCompleteProcessOutput = "";
-
+            toggleCompleteProcess.output = "";
             toggleCompleteProcess.running = true;
         }
+
         onExited: () => {
             try {
-                var json = JSON.parse(root.toggleCompleteProcessOutput.trim());
+                var json = JSON.parse(toggleCompleteProcess.output.trim());
 
-                if (json && json.success) {
-                    root.loadData();
-                } else {
+                if (!json.success) {
                     throw new Error(json && json.message ? json.message : "Failed to toggle task completion!");
                 }
             } catch (e) {
                 console.log("JSON parse error:", e);
-                console.log("Raw output:", root.toggleCompleteProcessOutput);
+                console.log("Raw output:", toggleCompleteProcess.output);
                 root.showToastError(e.message);
             }
 
+            root.loading = false;
             toggleCompleteProcess.running = false;
         }
     }
 
     function toggleComplete(task) {
         if (!task || !task.uid) {
-            root.showToastError("Unable to update task: missing UID");
             return;
         }
 
-        if (toggleCompleteProcess.running) {
+        if (toggleCompleteProcess.running || root.loading) {
             return;
         }
 
         toggleCompleteProcess.command = ["python3", root.currentDirectory + "main.py", "toggle_complete", root.settings.caldavURL, root.settings.caldavUsername, root.settings.caldavPassword, task.calendar, task.uid, "0"];
         toggleCompleteProcess.running = true;
+    }
+
+    Process {
+        id: shiftDueTimeProcess
+
+        property string output: ""
+        property bool error: false
+
+        stdout: SplitParser {
+            onRead: data => {
+                shiftDueTimeProcess.output += data + "\n";
+            }
+        }
+
+        onStarted: () => {
+            root.loading = true;
+            shiftDueTimeProcess.output = "";
+            shiftDueTimeProcess.running = true;
+        }
+
+        onExited: () => {
+            try {
+                var json = JSON.parse(shiftDueTimeProcess.output.trim());
+
+                if (!json.success) {
+                    throw new Error(json && json.message ? json.message : "Failed to shift task due time!");
+                }
+            } catch (e) {
+                console.log("JSON parse error:", e);
+                console.log("Raw output:", shiftDueTimeProcess.output);
+                root.showToastError(e.message);
+            }
+
+            root.loading = false;
+            shiftDueTimeProcess.running = false;
+        }
+    }
+
+    function shiftTaskDueTime(task, forward = false) {
+        if (!task || !task.uid) {
+            root.showToastError("Unable to update task: missing UID");
+            return;
+        }
+
+        if (shiftDueTimeProcess.running || root.loading) {
+            return;
+        }
+
+        shiftDueTimeProcess.command = ["python3", root.currentDirectory + "main.py", "shift_due_timestamp", root.settings.caldavURL, root.settings.caldavUsername, root.settings.caldavPassword, task.calendar, task.uid, root.settings.shiftDueTimeDelta, forward ? "1" : "0", "0"];
+        shiftDueTimeProcess.running = true;
     }
 
     horizontalBarPill: Component {
@@ -225,24 +274,15 @@ PluginComponent {
 
             // current task
             StyledText {
-                visible: !root.loading && root.tasksData != null && root.tasksData.currentTask != null
+                visible: root.tasksData != null && root.tasksData.currentTask != null
                 text: root.tasksData != null && root.tasksData.currentTask != null ? ((root.tasksData.completeCount / root.tasksData.totalCount) * 100).toFixed(0) + "% - " + Qt.formatDateTime(root.tasksData.currentTask.due, "hh:mm") + " : " + root.tasksData.currentTask.summary : ""
                 font.pixelSize: Theme.fontSizeSmall
                 color: Theme.surfaceText
                 anchors.verticalCenter: parent.verticalCenter
             }
 
-            // loading text
             StyledText {
-                visible: root.loading
-                text: "Loading..."
-                font.pixelSize: Theme.fontSizeSmall
-                color: Theme.surfaceText
-                anchors.verticalCenter: parent.verticalCenter
-            }
-
-            StyledText {
-                visible: !root.loading && root.tasksData && root.tasksData.tasks ? root.tasksData.tasks.length <= 0 : false
+                visible: root.tasksData && root.tasksData.tasks ? root.tasksData.tasks.length <= 0 : false
                 text: "Nothing to do..."
                 font.pixelSize: Theme.fontSizeSmall
                 color: Theme.surfaceText
@@ -278,7 +318,7 @@ PluginComponent {
 
                 Row {
                     id: calendarFilterRow
-                    visible: !root.loading && root.calendarFilter && root.calendarFilter.length > 0
+                    visible: root.calendarFilter && root.calendarFilter.length > 0
                     width: parent.width - (Theme.spacingS * 2) - refreshRow.width
                     spacing: Theme.spacingXS
                     anchors.left: parent.left
@@ -314,9 +354,10 @@ PluginComponent {
                                 MouseArea {
                                     anchors.fill: parent
                                     onClicked: {
+                                        calendarPill.active = !calendarPill.active;
                                         root.toggleCalendarFilter(calendarPill.modelData);
                                     }
-                                    cursorShape: Qt.PointingHandCursor
+                                    cursorShape: enabled || !root.loading ? Qt.PointingHandCursor : Qt.ArrowCursor
                                 }
                             }
                         }
@@ -333,7 +374,7 @@ PluginComponent {
 
                     StyledText {
                         id: refreshTimestampText
-                        text: Qt.formatDateTime(new Date(root.loadDataTimestamp), "hh:mm")
+                        text: Qt.formatDateTime(new Date(root.loadDataTimestamp), "hh:mm:ss ~ ") + root.settings.refreshInterval + "m"
                         font.pixelSize: Theme.fontSizeSmall * 0.8
                         font.family: "monospace"
                         color: Theme.surfaceVariantText
@@ -359,7 +400,7 @@ PluginComponent {
                                     root.loadSettings();
                                     root.loadData();
                                 }
-                                cursorShape: Qt.PointingHandCursor
+                                cursorShape: enabled || !root.loading ? Qt.PointingHandCursor : Qt.ArrowCursor
                             }
                         }
                     }
@@ -370,19 +411,9 @@ PluginComponent {
                 width: parent.width
                 implicitHeight: root.popoutHeight - popoutColumn.headerHeight - popoutColumn.detailsHeight - Theme.spacingXL
 
-                // loading text
-                StyledText {
-                    visible: root.loading
-                    text: "Loading..."
-                    font.pixelSize: Theme.fontSizeSmall
-                    color: Theme.surfaceText
-                    anchors.verticalCenter: parent.verticalCenter
-                    anchors.horizontalCenter: parent.horizontalCenter
-                }
-
                 // no tasks text
                 StyledText {
-                    visible: !root.loading && root.tasksData && root.tasksData.tasks ? root.tasksData.tasks.length <= 0 : false
+                    visible: root.tasksData && root.tasksData.tasks ? root.tasksData.tasks.length <= 0 : false
                     text: "Nothing to do..."
                     font.pixelSize: Theme.fontSizeSmall
                     color: Theme.surfaceText
@@ -392,7 +423,6 @@ PluginComponent {
 
                 // scrollable tasks list
                 Flickable {
-                    visible: !root.loading && root.tasksData && root.tasksData.tasks ? root.tasksData.tasks.length > 0 : false
                     anchors.fill: parent
                     contentWidth: parent.width
                     contentHeight: tasksGroupColumn.height
@@ -432,10 +462,11 @@ PluginComponent {
 
                                     Row {
                                         id: taskRow
-                                        required property var modelData
                                         width: tasksGroupColumn.width
                                         height: Theme.fontSizeSmall * 1.1
                                         spacing: Theme.spacingXS
+
+                                        required property var modelData
 
                                         StyledText {
                                             text: taskRow.modelData.summary
@@ -470,44 +501,95 @@ PluginComponent {
                                                 anchors.verticalCenter: parent.verticalCenter
                                             }
 
-                                            StyledText {
-                                                id: timestampText
-                                                text: taskRow.modelData.allDay ? "XX:XX" : Qt.formatDateTime(new Date(taskRow.modelData.due), "hh:mm")
-                                                font.pixelSize: Theme.fontSizeSmall * 0.8
-                                                font.family: "monospace"
-                                                color: Theme.surfaceVariantText
-                                                anchors.verticalCenter: parent.verticalCenter
+                                            // due time with shift buttons
+                                            Row {
+                                                id: timestampRow
+                                                padding: Theme.spacingXS
+                                                spacing: Theme.spacingS
+                                                height: parent.height
+
+                                                StyledText {
+                                                    id: timestampShiftDown
+                                                    text: '-'
+                                                    font.pixelSize: Theme.fontSizeSmall * 0.8
+                                                    font.family: "monospace"
+                                                    color: Theme.surfaceVariantText
+                                                    anchors.verticalCenter: parent.verticalCenter
+
+                                                    MouseArea {
+                                                        anchors.fill: parent
+                                                        enabled: !root.loading && !shiftDueTimeProcess.running
+                                                        onClicked: {
+                                                            root.shiftTaskDueTime(taskRow.modelData, false);
+                                                            root.loadData();
+                                                        }
+                                                        cursorShape: enabled || !root.loading ? Qt.PointingHandCursor : Qt.ArrowCursor
+                                                    }
+                                                }
+
+                                                StyledText {
+                                                    id: timestampText
+                                                    text: taskRow.modelData.allDay ? "XX:XX" : Qt.formatDateTime(new Date(taskRow.modelData.due), "hh:mm")
+                                                    font.pixelSize: Theme.fontSizeSmall * 0.8
+                                                    font.family: "monospace"
+                                                    color: Theme.surfaceVariantText
+                                                    anchors.verticalCenter: parent.verticalCenter
+                                                }
+
+                                                StyledText {
+                                                    id: timestampShiftUp
+                                                    text: '+'
+                                                    font.pixelSize: Theme.fontSizeSmall * 0.8
+                                                    font.family: "monospace"
+                                                    color: Theme.surfaceVariantText
+                                                    anchors.verticalCenter: parent.verticalCenter
+
+                                                    MouseArea {
+                                                        anchors.fill: parent
+                                                        enabled: !root.loading && !shiftDueTimeProcess.running
+                                                        onClicked: {
+                                                            root.shiftTaskDueTime(taskRow.modelData, true);
+                                                            root.loadData();
+                                                        }
+                                                        cursorShape: enabled || !root.loading ? Qt.PointingHandCursor : Qt.ArrowCursor
+                                                    }
+                                                }
                                             }
 
                                             // checkbox
                                             StyledRect {
-                                                visible: true
+                                                id: checkbox
                                                 width: 10
                                                 height: width
                                                 radius: 1
+                                                // color: completed ? Theme.surfaceVariantText : "transparent"
                                                 color: "transparent"
                                                 border.width: 1
+                                                // border.color: completed ? Theme.success : Theme.error
                                                 border.color: Theme.surfaceVariantText
                                                 anchors.verticalCenter: parent.verticalCenter
 
-                                                property bool checked: taskRow.modelData.completed
+                                                property bool completed: taskRow.modelData.completed
 
                                                 DankIcon {
+                                                    id: checkmark
                                                     anchors.fill: parent
                                                     anchors.margins: 0
-                                                    name: "close"
-                                                    size: parent.width
-                                                    color: Theme.primary
-                                                    visible: parent.checked
+                                                    name: "check"
+                                                    size: parent.width * 0.8
+                                                    color: parent.border.color
+                                                    visible: checkbox.completed
                                                 }
-
 
                                                 MouseArea {
                                                     anchors.fill: parent
                                                     enabled: !root.loading && !toggleCompleteProcess.running
                                                     onClicked: {
+                                                        checkbox.completed = !checkbox.completed;
                                                         root.toggleComplete(taskRow.modelData);
+                                                        root.loadData();
                                                     }
+                                                    cursorShape: enabled || !root.loading ? Qt.PointingHandCursor : Qt.ArrowCursor
                                                 }
                                             }
                                         }

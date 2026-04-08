@@ -5,7 +5,7 @@ from __future__ import annotations
 import sys
 
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from caldav import get_calendar
 
@@ -14,7 +14,6 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import Any
     from caldav.base_client import CalendarResult
-from datetime import timedelta
 
 
 DEBUG = bool(int(sys.argv.pop(-1)))
@@ -108,6 +107,11 @@ def __main__(
                 if STATUS == "COMPLETED":
                     COMPLETE = True
 
+            if STATUS == "COMPLETED" and ALL_DAY:
+                COMPLETE = True
+                complete_count += 1
+                total_count += 1
+
             if STATUS == "NEEDS-ACTION" and DUE.date() <= TODAY:
                 total_count += 1
 
@@ -147,6 +151,11 @@ def __main__(
 
     CURRENT = next(filter(current_filter, DATA), None)
 
+    if not CURRENT:
+        CURRENT = next(
+            filter(lambda x: not x.get("completed") and not x.get("allDay"), DATA), None
+        )
+
     # group tasks by date
 
     TASKS_BY_DATE = {}
@@ -180,6 +189,9 @@ def toggle_complete(
     )  # pyright: ignore[reportCallIssue]
 
     TODO_EVENTS = CALENDAR.search(todo=True, include_completed=True, uid=UID)
+
+    if not TODO_EVENTS or len(TODO_EVENTS) == 0:
+        raise ValueError(f"No task found with UID: {UID}")
 
     debug("Completing task with UID:", UID)
 
@@ -216,8 +228,89 @@ def toggle_complete(
         TODO_EVENT_COMPONENT = TODO_EVENT.get_icalendar_component()
         debug(TODO_EVENT_COMPONENT.get("SUMMARY"), TODO_EVENT_COMPONENT)
 
-    return SUCCESS_PAYLOAD
+    return {}
 
+def shift_due_timestamp(
+    CALDAV_URL: str,
+    CALDAV_USERNAME: str,
+    CALDAV_PASSWORD: str,
+    CALDAV_CALENDAR: str,
+    UID: str,
+    TIME_DELTA_MINUTES: str | int,
+    SHIFT_FORWARD: str | bool,
+):
+    try:
+        TIME_DELTA_MINUTES = int(TIME_DELTA_MINUTES)
+    except ValueError:
+        raise ValueError("TIME_DELTA_MINUTES must be an integer")
+
+    try:
+        SHIFT_FORWARD = bool(int(SHIFT_FORWARD))
+    except ValueError:
+        raise ValueError("SHIFT_FORWARD must be a boolean (0 or 1)")
+
+    CALENDAR: CalendarResult = get_calendar(
+        url=CALDAV_URL,
+        username=CALDAV_USERNAME,
+        password=CALDAV_PASSWORD,
+        calendar_name=CALDAV_CALENDAR,
+    )  # pyright: ignore[reportCallIssue]
+
+    TODO_EVENTS = CALENDAR.search(todo=True, include_completed=True, uid=UID)
+
+    if not TODO_EVENTS or len(TODO_EVENTS) == 0:
+        raise ValueError(f"No task found with UID: {UID}")
+
+    debug("Shifting due date for task with UID:", UID)
+
+    for TODO_EVENT in TODO_EVENTS:
+        TODO_EVENT_COMPONENT = TODO_EVENT.get_icalendar_component()
+        debug(TODO_EVENT_COMPONENT.get("SUMMARY"), TODO_EVENT_COMPONENT)
+
+        with TODO_EVENT.edit_icalendar_component() as COMPONENT:
+            if not COMPONENT.get("DUE"):
+                raise ValueError("Task does not have a due date")
+
+            DUE = COMPONENT["DUE"].dt
+
+            if SHIFT_FORWARD:
+                COMPONENT["DUE"].dt = DUE + timedelta(minutes=TIME_DELTA_MINUTES)
+            else:
+                COMPONENT["DUE"].dt = DUE - timedelta(minutes=TIME_DELTA_MINUTES)
+
+            COMPONENT["DTSTAMP"] = (
+                datetime.now(UTC).replace(microsecond=0).strftime("%Y%m%dT%H%M%SZ")
+            )
+
+        TODO_EVENT.save()
+
+        TODO_EVENT_COMPONENT = TODO_EVENT.get_icalendar_component()
+        debug(TODO_EVENT_COMPONENT.get("SUMMARY"), TODO_EVENT_COMPONENT)
+
+    return {}
+
+def validate(
+    CALDAV_URL: str,
+    CALDAV_USERNAME: str,
+    CALDAV_PASSWORD: str,
+    CALDAV_CALENDAR: str,
+    CALDAV_CALENDARS: str,
+) -> dict[str, Any]:
+    for CALENDAR in CALDAV_CALENDARS.split(",") + [CALDAV_CALENDAR]:
+        try:
+            CAL = get_calendar(
+                url=CALDAV_URL,
+                username=CALDAV_USERNAME,
+                password=CALDAV_PASSWORD,
+                calendar_name=CALENDAR,
+            )  # pyright: ignore[reportCallIssue]
+            if not CAL:
+                raise ValueError(f"Calendar {CALENDAR} not found. Check your CalDav settings.")
+        except Exception as e:
+            raise ValueError(str(e))
+
+
+    return SUCCESS_PAYLOAD
 
 if __name__ == "__main__":
     data = {}
@@ -228,6 +321,8 @@ if __name__ == "__main__":
     MODES = {
         "load": __main__,
         "toggle_complete": toggle_complete,
+        "shift_due_timestamp": shift_due_timestamp,
+        "validate": validate,
     }
 
     data = FAILED_PAYLOAD
