@@ -14,4 +14,4 @@ Planned:
 - Support for creating new tasks from the UI
 - Support for configurable template strings on UI elements
 - Support for tracking time spent on a task
-- Support of multiple CalDav calendars
+- Support for multiple CalDav calendars
