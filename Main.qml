@@ -16,16 +16,7 @@ PluginComponent {
     id: root
 
     // plugin settings
-    property var settings: ({
-            caldavURL: pluginData.caldavURL,
-            caldavUsername: pluginData.caldavUsername,
-            caldavPassword: pluginData.caldavPassword,
-            caldavCalendar: pluginData.caldavCalendar,
-            caldavCalendars: pluginData.caldavCalendars ? pluginData.caldavCalendars.split(",").map(s => s.trim()) : [pluginData.caldavCalendar],
-            shiftDueTimeDelta: isNaN(Number(pluginData.shiftDueTimeDelta)) ? 15 : Number(pluginData.shiftDueTimeDelta) // default to 15 minutes
-            ,
-            refreshInterval: isNaN(Number(pluginData.refreshInterval)) ? 1 : Number(pluginData.refreshInterval) // default to 1 minute
-        })
+    property var settings: ({})
 
     // loadSettings
     function loadSettings() {
@@ -98,24 +89,32 @@ PluginComponent {
     }
 
     function showToastError(message) {
-        ToastService.showError("Tasks Plugin: " + message);
+        message = "Tasks: " + message;
+
+        console.error(message);
+        ToastService.showError(message);
     }
 
+    // loadDataProcess
     Process {
         id: loadDataProcess
 
         property string output: ""
+        property bool error: false
+        property var onComplete: null
 
         stdout: SplitParser {
             onRead: data => {
                 loadDataProcess.output += data + "\n";
             }
         }
+
         onStarted: () => {
             root.loading = true;
             loadDataProcess.output = "";
             loadDataProcess.running = true;
         }
+
         onExited: () => {
             try {
                 var json = JSON.parse(loadDataProcess.output.trim());
@@ -138,14 +137,19 @@ PluginComponent {
 
             root.loading = false;
             loadDataProcess.running = false;
+
+            if (loadDataProcess.onComplete) {
+                loadDataProcess.onComplete();
+            }
         }
     }
 
-    function loadData() {
+    function loadData(onComplete = null) {
         if (loadDataProcess.running || root.loading) {
             return;
         }
 
+        loadDataProcess.onComplete = onComplete;
         loadDataProcess.command = ["python3", root.currentDirectory + "main.py", "load", root.settings.caldavURL, root.settings.caldavUsername, root.settings.caldavPassword, root.calendarFilter.join(","), "0"];
         loadDataProcess.running = true;
     }
@@ -170,10 +174,13 @@ PluginComponent {
         });
     }
 
+    // toggleCompleteProcess
     Process {
         id: toggleCompleteProcess
 
         property string output: ""
+        property bool error: false
+        property var onComplete: null
 
         stdout: SplitParser {
             onRead: data => {
@@ -202,10 +209,14 @@ PluginComponent {
 
             root.loading = false;
             toggleCompleteProcess.running = false;
+
+            if (toggleCompleteProcess.onComplete) {
+                toggleCompleteProcess.onComplete();
+            }
         }
     }
 
-    function toggleComplete(task) {
+    function toggleComplete(task, onComplete = root.loadData) {
         if (!task || !task.uid) {
             return;
         }
@@ -214,15 +225,18 @@ PluginComponent {
             return;
         }
 
+        toggleCompleteProcess.onComplete = onComplete;
         toggleCompleteProcess.command = ["python3", root.currentDirectory + "main.py", "toggle_complete", root.settings.caldavURL, root.settings.caldavUsername, root.settings.caldavPassword, task.calendar, task.uid, "0"];
         toggleCompleteProcess.running = true;
     }
 
+    // shiftDueTimeProcess
     Process {
         id: shiftDueTimeProcess
 
         property string output: ""
         property bool error: false
+        property var onComplete: null
 
         stdout: SplitParser {
             onRead: data => {
@@ -251,10 +265,14 @@ PluginComponent {
 
             root.loading = false;
             shiftDueTimeProcess.running = false;
+
+            if (shiftDueTimeProcess.onComplete) {
+                shiftDueTimeProcess.onComplete();
+            }
         }
     }
 
-    function shiftTaskDueTime(task, forward = false) {
+    function shiftTaskDueTime(task, forward = false, onComplete = root.loadData) {
         if (!task || !task.uid) {
             root.showToastError("Unable to update task: missing UID");
             return;
@@ -264,6 +282,7 @@ PluginComponent {
             return;
         }
 
+        shiftDueTimeProcess.onComplete = onComplete;
         shiftDueTimeProcess.command = ["python3", root.currentDirectory + "main.py", "shift_due_timestamp", root.settings.caldavURL, root.settings.caldavUsername, root.settings.caldavPassword, task.calendar, task.uid, root.settings.shiftDueTimeDelta, forward ? "1" : "0", "0"];
         shiftDueTimeProcess.running = true;
     }
@@ -354,7 +373,6 @@ PluginComponent {
                                 MouseArea {
                                     anchors.fill: parent
                                     onClicked: {
-                                        calendarPill.active = !calendarPill.active;
                                         root.toggleCalendarFilter(calendarPill.modelData);
                                     }
                                     cursorShape: enabled || !root.loading ? Qt.PointingHandCursor : Qt.ArrowCursor
@@ -521,7 +539,6 @@ PluginComponent {
                                                         enabled: !root.loading && !shiftDueTimeProcess.running
                                                         onClicked: {
                                                             root.shiftTaskDueTime(taskRow.modelData, false);
-                                                            root.loadData();
                                                         }
                                                         cursorShape: enabled || !root.loading ? Qt.PointingHandCursor : Qt.ArrowCursor
                                                     }
@@ -549,7 +566,6 @@ PluginComponent {
                                                         enabled: !root.loading && !shiftDueTimeProcess.running
                                                         onClicked: {
                                                             root.shiftTaskDueTime(taskRow.modelData, true);
-                                                            root.loadData();
                                                         }
                                                         cursorShape: enabled || !root.loading ? Qt.PointingHandCursor : Qt.ArrowCursor
                                                     }
@@ -585,9 +601,7 @@ PluginComponent {
                                                     anchors.fill: parent
                                                     enabled: !root.loading && !toggleCompleteProcess.running
                                                     onClicked: {
-                                                        checkbox.completed = !checkbox.completed;
                                                         root.toggleComplete(taskRow.modelData);
-                                                        root.loadData();
                                                     }
                                                     cursorShape: enabled || !root.loading ? Qt.PointingHandCursor : Qt.ArrowCursor
                                                 }
