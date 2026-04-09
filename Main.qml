@@ -12,21 +12,42 @@ import qs.Services
 import qs.Widgets
 import qs.Modules.Plugins
 
+import "."
+
 PluginComponent {
     id: root
+
+    function logError() {
+        var argumentsArray = Array.from(arguments);
+
+        var toast = argumentsArray.pop(-1);
+        var message = argumentsArray.join(" ");
+
+        console.error('pluginId > ' + root.pluginId + ': ' + message);
+        if (toast)
+            ToastService.showError("Tasks: " + message);
+    }
 
     // plugin settings
     property var settings: ({})
 
+    // constants
+    property var constants: {
+        caldavCreds: [];
+        helper: [];
+    }
+
+    property bool initzialized: false
+
     // loadSettings
-    function loadSettings() {
+    function loadSettings(hardClear = false) {
         if (!pluginData) {
-            root.showToastError("Failed to load plugin settings!");
+            root.logError("Failed to load plugin settings!", true);
             return;
         }
 
         if (!pluginData.caldavURL || !pluginData.caldavUsername || !pluginData.caldavPassword || !pluginData.caldavCalendar || isNaN(Number(pluginData.refreshInterval)) || Number(pluginData.refreshInterval) <= 0) {
-            root.showToastError("Please fill in all required settings!");
+            root.logError("Please fill in all required settings!", true);
             return;
         }
 
@@ -41,15 +62,40 @@ PluginComponent {
             refreshInterval: isNaN(Number(pluginData.refreshInterval)) ? 1 : Number(pluginData.refreshInterval) // default to 1 minute
         };
 
-        root.totalCalendarCount = root.settings.caldavCalendars.length + 1;
+        root.constants.caldavCreds = [root.settings.caldavURL, root.settings.caldavUsername, root.settings.caldavPassword];
 
-        root.tasksData = pluginService.loadPluginData(root.pluginId, 'tasksData') || {};
-        root.calendarFilter = pluginService.loadPluginData(root.pluginId, 'calendarFilter') || [pluginData.caldavCalendar];
-        root.calendarFilterInactive = pluginService.loadPluginData(root.pluginId, 'calendarFilterInactive') || [];
+        if (!root.initzialized || hardClear) {
+            root.constants.helper = ["python3", Qt.resolvedUrl(".").toString().replace(/^file:\/\//, "") + "main.py"];
+            root.totalCalendarCount = root.settings.caldavCalendars.length + 1;
 
-        if (root.totalCalendarCount != root.settings.caldavCalendars.length + 1) {
+            var oldVersion = PluginService.loadPluginData(root.pluginId, 'version') || root.pluginService.loadedPlugins.tasks.version;
+
+            if (oldVersion != root.pluginService.loadedPlugins.tasks.version) {
+                hardClear = true;
+            }
+
+            if (!hardClear) {
+                root.tasksData = PluginService.loadPluginData(root.pluginId, 'tasksData') || {};
+                root.calendarFilter = PluginService.loadPluginData(root.pluginId, 'calendarFilter') || [pluginData.caldavCalendar];
+                root.calendarFilterInactive = PluginService.loadPluginData(root.pluginId, 'calendarFilterInactive') || [];
+            }
+
+            root.initzialized = true;
+        }
+
+        if (hardClear) {
+            PluginService.savePluginData(root.pluginService.loadedPlugins.tasks.version, 'version');
+            PluginService.savePluginData(root.pluginId, 'tasksData', {});
+            PluginService.savePluginData(root.pluginId, 'calendarFilter', [pluginData.caldavCalendar]);
+            PluginService.savePluginData(root.pluginId, 'calendarFilterInactive', []);
+        }
+
+        if (root.totalCalendarCount != root.settings.caldavCalendars.length + 1 || hardClear) {
             root.calendarFilter = [root.settings.caldavCalendar];
             root.calendarFilterInactive = root.settings.caldavCalendars;
+
+            pluginService.savePluginData(root.pluginId, 'calendarFilter', root.calendarFilter);
+            pluginService.savePluginData(root.pluginId, 'calendarFilterInactive', root.calendarFilterInactive);
         }
     }
 
@@ -58,11 +104,6 @@ PluginComponent {
     property bool loading: false
     property var loadDataTimestamp: 0
 
-    // misc.
-    property string currentDirectory: {
-        return Qt.resolvedUrl(".").toString().replace(/^file:\/\//, "");
-    }
-
     // calander's to filter
     property int totalCalendarCount: 0
     property var calendarFilter: []
@@ -70,7 +111,7 @@ PluginComponent {
 
     function toggleCalendarFilter(calendar) {
         if (calendar == root.settings.caldavCalendar) {
-            root.showToastError("Cannot disable main calendar filter!");
+            root.logError("Cannot disable main calendar filter!", true);
             return;
         }
 
@@ -85,206 +126,142 @@ PluginComponent {
         pluginService.savePluginData(root.pluginId, 'calendarFilter', root.calendarFilter);
         pluginService.savePluginData(root.pluginId, 'calendarFilterInactive', root.calendarFilterInactive);
 
-        root.loadData();
+        helperProcess.loadData();
     }
 
-    function showToastError(message) {
-        message = "Tasks: " + message;
-
-        console.error(message);
-        ToastService.showError(message);
-    }
-
-    // loadDataProcess
+    // helperProcess
     Process {
-        id: loadDataProcess
+        id: helperProcess
 
         property string output: ""
-        property bool error: false
+        property var json: ({})
+
         property var onComplete: null
 
         stdout: SplitParser {
             onRead: data => {
-                loadDataProcess.output += data + "\n";
+                helperProcess.output += data + "\n";
             }
         }
 
         onStarted: () => {
             root.loading = true;
-            loadDataProcess.output = "";
-            loadDataProcess.running = true;
+
+            helperProcess.output = "";
+            helperProcess.json = {};
+            helperProcess.running = true;
+
+            console.info("running process:", helperProcess.command.join(" "));
         }
 
         onExited: () => {
             try {
-                var json = JSON.parse(loadDataProcess.output.trim());
+                var json = JSON.parse(output.trim());
 
-                if (json && json.success) {
-                    root.tasksData = json.data || {};
-                    root.loadDataTimestamp = Date.now();
-
-                    PluginService.savePluginData(root.pluginId, 'tasksData', {});
-                    PluginService.savePluginData(root.pluginId, 'tasksData', root.tasksData);
-                } else {
-                    throw new Error(json && json.message ? json.message : "Failed to load tasks data!");
-                }
+                helperProcess.json = json || {};
             } catch (e) {
-                console.log("JSON parse error:", e);
-                console.log("Raw output:", loadDataProcess.output);
-
-                root.showToastError(e.message);
+                root.logError("JSON parse error:", e);
+                root.logError("Raw output:", output);
             }
 
+            running = false;
             root.loading = false;
-            loadDataProcess.running = false;
 
-            if (loadDataProcess.onComplete) {
-                loadDataProcess.onComplete();
+            if (helperProcess.onComplete) {
+                helperProcess.onComplete();
+            }
+
+            if (!helperProcess.json.success) {
+                root.logError(helperProcess.json.message || "Unknown error from helper process!", true);
+                // throw new Error(helperProcess.json.message || "Unknown error from helper process!");
             }
         }
-    }
 
-    function loadData(onComplete = null) {
-        if (loadDataProcess.running || root.loading) {
-            return;
+        function _preCheck() {
+            if (root.loading || helperProcess.running) {
+                root.logError("Please wait for the current operation to finish!", true);
+                return false;
+            }
+            return true;
         }
 
-        loadDataProcess.onComplete = onComplete;
-        loadDataProcess.command = ["python3", root.currentDirectory + "main.py", "load", root.settings.caldavURL, root.settings.caldavUsername, root.settings.caldavPassword, root.calendarFilter.join(","), "0"];
-        loadDataProcess.running = true;
+        function _wrapCommandDefaults(command) {
+            var mode = command[0];
+            var modeArgs = command.slice(1);
+
+            return root.constants.helper.concat([mode]).concat(root.constants.caldavCreds).concat(modeArgs).concat(["0"]);
+        }
+
+        function run(commmand, onComplete = null) {
+            helperProcess.onComplete = onComplete;
+            helperProcess.command = _wrapCommandDefaults(commmand);
+            helperProcess.running = true;
+        }
+
+        function loadData() {
+            if (!_preCheck()) {
+                return;
+            }
+
+            helperProcess.run(["load", root.calendarFilter.join(",")], () => {
+                try {
+                    root.tasksData = helperProcess.json.data;
+                } catch (e) {
+                    root.logError("Error processing helper process output:", e);
+                    return;
+                }
+
+                root.loadDataTimestamp = Date.now();
+
+                PluginService.savePluginData(root.pluginId, 'tasksData', {});
+                PluginService.savePluginData(root.pluginId, 'tasksData', root.tasksData);
+            });
+        }
+
+        function toggleComplete(task) {
+            if (!_preCheck()) {
+                return;
+            }
+
+            if (!task || !task.uid) {
+                return;
+            }
+
+            helperProcess.run(["toggle_complete", task.calendar, task.uid], helperProcess.loadData);
+        }
+
+        function shiftTaskDueTime(task, forward = false, onComplete = helperProcess.loadData) {
+            if (!_preCheck()) {
+                return;
+            }
+
+            if (!task || !task.uid) {
+                root.logError("Unable to update task: missing UID");
+                return;
+            }
+
+            helperProcess.run(["shift_due_timestamp", task.calendar, task.uid, root.settings.shiftDueTimeDelta, forward ? "1" : "0"], onComplete);
+        }
     }
 
     Timer {
         id: refreshTimer
         interval: root.settings.refreshInterval * 10000
-        running: false
+        running: true
         repeat: true
         onTriggered: {
             root.loadSettings();
-            root.loadData();
+            helperProcess.loadData();
         }
     }
 
     Component.onCompleted: {
         Qt.callLater(() => {
             root.loadSettings();
-            root.loadData();
+            helperProcess.loadData();
 
             refreshTimer.running = true;
         });
-    }
-
-    // toggleCompleteProcess
-    Process {
-        id: toggleCompleteProcess
-
-        property string output: ""
-        property bool error: false
-        property var onComplete: null
-
-        stdout: SplitParser {
-            onRead: data => {
-                toggleCompleteProcess.output += data + "\n";
-            }
-        }
-
-        onStarted: () => {
-            root.loading = true;
-            toggleCompleteProcess.output = "";
-            toggleCompleteProcess.running = true;
-        }
-
-        onExited: () => {
-            try {
-                var json = JSON.parse(toggleCompleteProcess.output.trim());
-
-                if (!json.success) {
-                    throw new Error(json && json.message ? json.message : "Failed to toggle task completion!");
-                }
-            } catch (e) {
-                console.log("JSON parse error:", e);
-                console.log("Raw output:", toggleCompleteProcess.output);
-                root.showToastError(e.message);
-            }
-
-            root.loading = false;
-            toggleCompleteProcess.running = false;
-
-            if (toggleCompleteProcess.onComplete) {
-                toggleCompleteProcess.onComplete();
-            }
-        }
-    }
-
-    function toggleComplete(task, onComplete = root.loadData) {
-        if (!task || !task.uid) {
-            return;
-        }
-
-        if (toggleCompleteProcess.running || root.loading) {
-            return;
-        }
-
-        toggleCompleteProcess.onComplete = onComplete;
-        toggleCompleteProcess.command = ["python3", root.currentDirectory + "main.py", "toggle_complete", root.settings.caldavURL, root.settings.caldavUsername, root.settings.caldavPassword, task.calendar, task.uid, "0"];
-        toggleCompleteProcess.running = true;
-    }
-
-    // shiftDueTimeProcess
-    Process {
-        id: shiftDueTimeProcess
-
-        property string output: ""
-        property bool error: false
-        property var onComplete: null
-
-        stdout: SplitParser {
-            onRead: data => {
-                shiftDueTimeProcess.output += data + "\n";
-            }
-        }
-
-        onStarted: () => {
-            root.loading = true;
-            shiftDueTimeProcess.output = "";
-            shiftDueTimeProcess.running = true;
-        }
-
-        onExited: () => {
-            try {
-                var json = JSON.parse(shiftDueTimeProcess.output.trim());
-
-                if (!json.success) {
-                    throw new Error(json && json.message ? json.message : "Failed to shift task due time!");
-                }
-            } catch (e) {
-                console.log("JSON parse error:", e);
-                console.log("Raw output:", shiftDueTimeProcess.output);
-                root.showToastError(e.message);
-            }
-
-            root.loading = false;
-            shiftDueTimeProcess.running = false;
-
-            if (shiftDueTimeProcess.onComplete) {
-                shiftDueTimeProcess.onComplete();
-            }
-        }
-    }
-
-    function shiftTaskDueTime(task, forward = false, onComplete = root.loadData) {
-        if (!task || !task.uid) {
-            root.showToastError("Unable to update task: missing UID");
-            return;
-        }
-
-        if (shiftDueTimeProcess.running || root.loading) {
-            return;
-        }
-
-        shiftDueTimeProcess.onComplete = onComplete;
-        shiftDueTimeProcess.command = ["python3", root.currentDirectory + "main.py", "shift_due_timestamp", root.settings.caldavURL, root.settings.caldavUsername, root.settings.caldavPassword, task.calendar, task.uid, root.settings.shiftDueTimeDelta, forward ? "1" : "0", "0"];
-        shiftDueTimeProcess.running = true;
     }
 
     horizontalBarPill: Component {
@@ -372,10 +349,11 @@ PluginComponent {
 
                                 MouseArea {
                                     anchors.fill: parent
+                                    enabled: !root.loading && !helperProcess.running
+                                    cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
                                     onClicked: {
                                         root.toggleCalendarFilter(calendarPill.modelData);
                                     }
-                                    cursorShape: enabled || !root.loading ? Qt.PointingHandCursor : Qt.ArrowCursor
                                 }
                             }
                         }
@@ -412,13 +390,20 @@ PluginComponent {
                             color: Theme.primary
 
                             MouseArea {
+                                id: refreshIconMouseArea
                                 anchors.fill: parent
-                                enabled: !root.loading && !toggleCompleteProcess.running
+                                enabled: !root.loading && !helperProcess.running
+                                cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+
                                 onClicked: {
                                     root.loadSettings();
-                                    root.loadData();
+                                    helperProcess.loadData();
                                 }
-                                cursorShape: enabled || !root.loading ? Qt.PointingHandCursor : Qt.ArrowCursor
+                                onPressAndHold: {
+                                    ToastService.showInfo("Clearing cached data...");
+                                    root.loadSettings(true);
+                                    helperProcess.loadData();
+                                }
                             }
                         }
                     }
@@ -536,11 +521,11 @@ PluginComponent {
 
                                                     MouseArea {
                                                         anchors.fill: parent
-                                                        enabled: !root.loading && !shiftDueTimeProcess.running
+                                                        enabled: !root.loading && !helperProcess.running
+                                                        cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
                                                         onClicked: {
-                                                            root.shiftTaskDueTime(taskRow.modelData, false);
+                                                            helperProcess.shiftTaskDueTime(taskRow.modelData, false);
                                                         }
-                                                        cursorShape: enabled || !root.loading ? Qt.PointingHandCursor : Qt.ArrowCursor
                                                     }
                                                 }
 
@@ -563,11 +548,11 @@ PluginComponent {
 
                                                     MouseArea {
                                                         anchors.fill: parent
-                                                        enabled: !root.loading && !shiftDueTimeProcess.running
+                                                        enabled: !root.loading && !helperProcess.running
+                                                        cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
                                                         onClicked: {
-                                                            root.shiftTaskDueTime(taskRow.modelData, true);
+                                                            helperProcess.shiftTaskDueTime(taskRow.modelData, true);
                                                         }
-                                                        cursorShape: enabled || !root.loading ? Qt.PointingHandCursor : Qt.ArrowCursor
                                                     }
                                                 }
                                             }
@@ -599,11 +584,11 @@ PluginComponent {
 
                                                 MouseArea {
                                                     anchors.fill: parent
-                                                    enabled: !root.loading && !toggleCompleteProcess.running
+                                                    enabled: !root.loading && !helperProcess.running
+                                                    cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
                                                     onClicked: {
-                                                        root.toggleComplete(taskRow.modelData);
+                                                        helperProcess.toggleComplete(taskRow.modelData);
                                                     }
-                                                    cursorShape: enabled || !root.loading ? Qt.PointingHandCursor : Qt.ArrowCursor
                                                 }
                                             }
                                         }

@@ -2,17 +2,17 @@
 
 from __future__ import annotations
 
-import sys
-
 import json
+import sys
 from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
-from caldav import get_calendar
-
 from typing import TYPE_CHECKING
+from zoneinfo import ZoneInfo
+
+from caldav import get_calendar
 
 if TYPE_CHECKING:
     from typing import Any
+
     from caldav.base_client import CalendarResult
 
 
@@ -122,7 +122,7 @@ def __main__(
                 "completed": COMPLETE,
                 "allDay": ALL_DAY,
                 "priority": TODO_EVENT_COMPONENT.get("PRIORITY", 9),
-                'calendar': CALDAV_CALENDAR,
+                "calendar": CALDAV_CALENDAR,
             }
 
             DATA.append(EVENT)
@@ -209,18 +209,24 @@ def toggle_complete(
                 del COMPONENT["COMPLETED"]
             else:
                 if RRULE:
-                    if RRULE.get("FREQ") == ["DAILY"]:
-                        due_date = COMPONENT['DUE'].dt
-                        COMPONENT['DUE'].dt = due_date + timedelta(days=1)
+                    if (FREQ := RRULE.get("FREQ")) == ["DAILY"]:
+                        due_date = COMPONENT["DUE"].dt
+                        COMPONENT["DUE"].dt = due_date + timedelta(days=1)
                         COMPONENT["DTSTAMP"] = (
-                            datetime.now(UTC).replace(microsecond=0).strftime("%Y%m%dT%H%M%SZ")
+                            datetime.now(UTC)
+                            .replace(microsecond=0)
+                            .strftime("%Y%m%dT%H%M%SZ")
                         )
                     else:
-                        raise NotImplementedError("Not implemented toggle complete for non-daily repeating tasks")
+                        raise NotImplementedError(
+                            f"Support for task completion for repeating tasks on '{FREQ}' not implemented!"
+                        )
                 else:
                     COMPONENT["STATUS"] = "COMPLETED"
                     COMPONENT["COMPLETED"] = (
-                        datetime.now(UTC).replace(microsecond=0).strftime("%Y%m%dT%H%M%SZ")
+                        datetime.now(UTC)
+                        .replace(microsecond=0)
+                        .strftime("%Y%m%dT%H%M%SZ")
                     )
 
         TODO_EVENT.save()
@@ -229,6 +235,7 @@ def toggle_complete(
         debug(TODO_EVENT_COMPONENT.get("SUMMARY"), TODO_EVENT_COMPONENT)
 
     return {}
+
 
 def shift_due_timestamp(
     CALDAV_URL: str,
@@ -289,6 +296,7 @@ def shift_due_timestamp(
 
     return {}
 
+
 def validate(
     CALDAV_URL: str,
     CALDAV_USERNAME: str,
@@ -305,12 +313,14 @@ def validate(
                 calendar_name=CALENDAR,
             )  # pyright: ignore[reportCallIssue]
             if not CAL:
-                raise ValueError(f"Calendar {CALENDAR} not found. Check your CalDav settings.")
+                raise ValueError(
+                    f"Calendar {CALENDAR} not found. Check your CalDav settings."
+                )
         except Exception as e:
             raise ValueError(str(e))
 
-
     return SUCCESS_PAYLOAD
+
 
 if __name__ == "__main__":
     data = {}
@@ -327,9 +337,7 @@ if __name__ == "__main__":
 
     data = FAILED_PAYLOAD
     try:
-        data = MODES.get(MODE, __main__)(
-            *sys.argv
-        )  # pyright: ignore[reportArgumentType]
+        data = MODES.get(MODE, __main__)(*sys.argv)  # pyright: ignore[reportArgumentType]
         data = {**SUCCESS_PAYLOAD, "data": data}
     except Exception as e:
         if DEBUG:
