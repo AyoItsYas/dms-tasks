@@ -45,10 +45,16 @@ def __main__(
     CALDAV_USERNAME: str,
     CALDAV_PASSWORD: str,
     CALDAV_CALENDARS: str,
+    PRIORITY: str | None,
 ) -> dict[str, Any]:
     DATA = []
     NOW = datetime.now(LOCAL_TZ)
     TODAY = datetime.now(LOCAL_TZ).date()
+
+    try:
+        PRIORITY = int(PRIORITY)
+    except Exception as _:
+        PRIORITY = None
 
     total_count, complete_count = 0, 0
 
@@ -60,7 +66,14 @@ def __main__(
             calendar_name=CALDAV_CALENDAR,
         )  # pyright: ignore[reportCallIssue]
 
-        TODO_EVENTS = CALENDAR.search(todo=True, include_completed=True)
+        TODO_EVENTS = (
+            CALENDAR.search(todo=True, include_completed=True, priority=PRIORITY)
+            if PRIORITY >= 0
+            else CALENDAR.search(
+                todo=True,
+                include_completed=True,
+            )
+        )
 
         for TODO_EVENT in TODO_EVENTS:
             TODO_EVENT_COMPONENT = TODO_EVENT.get_icalendar_component()
@@ -74,8 +87,14 @@ def __main__(
             )
 
             ALL_DAY = False
-            DUE = TODO_EVENT_COMPONENT.get("DUE")
-            if DUE:
+            DUE = TODO_EVENT_COMPONENT.get("DUE", False)
+
+            try:
+                DUE.dt.hour
+            except AttributeError:
+                ALL_DAY = True
+
+            if DUE and not ALL_DAY:
                 DUE = DUE.dt.replace(
                     tzinfo=(
                         ZoneInfo(TODO_EVENT_COMPONENT.get("TZID"))
@@ -123,6 +142,7 @@ def __main__(
                 "allDay": ALL_DAY,
                 "priority": TODO_EVENT_COMPONENT.get("PRIORITY", 9),
                 "calendar": CALDAV_CALENDAR,
+                # "raw": TODO_EVENT.get_icalendar_instance().to_ical().decode(),
             }
 
             DATA.append(EVENT)

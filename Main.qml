@@ -28,6 +28,19 @@ PluginComponent {
             ToastService.showError("Tasks: " + message);
     }
 
+    function getPriorityColor(priority) {
+        if (priority <= 0)
+            return Theme.surfaceVariantText;
+        else if (priority == 1)
+            return '#ff7066';
+        else if (priority <= 5)
+            return "#ffb95b";
+        else if (priority <= 9)
+            return "#86b7ff";
+        else
+            return Theme.surfaceVariantText;
+    }
+
     // plugin settings
     property var settings: ({})
 
@@ -104,31 +117,6 @@ PluginComponent {
     property bool loading: false
     property var loadDataTimestamp: 0
 
-    // calander's to filter
-    property int totalCalendarCount: 0
-    property var calendarFilter: []
-    property var calendarFilterInactive: []
-
-    function toggleCalendarFilter(calendar) {
-        if (calendar == root.settings.caldavCalendar) {
-            root.logError("Cannot disable main calendar filter!", true);
-            return;
-        }
-
-        if (root.calendarFilter.includes(calendar)) {
-            root.calendarFilter = root.calendarFilter.filter(c => c !== calendar);
-            root.calendarFilterInactive = root.calendarFilterInactive.concat([calendar]);
-        } else {
-            root.calendarFilterInactive = root.calendarFilterInactive.filter(c => c !== calendar);
-            root.calendarFilter = root.calendarFilter.concat([calendar]);
-        }
-
-        pluginService.savePluginData(root.pluginId, 'calendarFilter', root.calendarFilter);
-        pluginService.savePluginData(root.pluginId, 'calendarFilterInactive', root.calendarFilterInactive);
-
-        helperProcess.loadData();
-    }
-
     // helperProcess
     Process {
         id: helperProcess
@@ -193,6 +181,7 @@ PluginComponent {
         }
 
         function run(commmand, onComplete = null) {
+            root.loading = true;
             helperProcess.onComplete = onComplete;
             helperProcess.command = _wrapCommandDefaults(commmand);
             helperProcess.running = true;
@@ -203,7 +192,7 @@ PluginComponent {
                 return;
             }
 
-            helperProcess.run(["load", root.calendarFilter.join(",")], () => {
+            helperProcess.run(["load", root.calendarFilter.join(","), root.prioritySteps[root.priorityStepIndex]], () => {
                 try {
                     root.tasksData = helperProcess.json.data;
                 } catch (e) {
@@ -246,7 +235,7 @@ PluginComponent {
 
     Timer {
         id: refreshTimer
-        interval: root.settings.refreshInterval * 10000
+        interval: (root.settings.refreshInterval * 60) * 1000
         running: true
         repeat: true
         onTriggered: {
@@ -262,6 +251,45 @@ PluginComponent {
 
             refreshTimer.running = true;
         });
+    }
+
+    // calander to filters
+    property var prioritySteps: [0, 1, 5, 9, -1]
+    property int priorityStepIndex: 4
+
+    property int totalCalendarCount: 0
+    property var calendarFilter: []
+    property var calendarFilterInactive: []
+
+    function toggleCalendarFilter(calendar) {
+        if (calendar == root.settings.caldavCalendar) {
+            root.logError("Cannot disable main calendar filter!", true);
+            return;
+        }
+
+        if (root.calendarFilter.includes(calendar)) {
+            root.calendarFilter = root.calendarFilter.filter(c => c !== calendar);
+            root.calendarFilterInactive = root.calendarFilterInactive.concat([calendar]);
+        } else {
+            root.calendarFilterInactive = root.calendarFilterInactive.filter(c => c !== calendar);
+            root.calendarFilter = root.calendarFilter.concat([calendar]);
+        }
+
+        pluginService.savePluginData(root.pluginId, 'calendarFilter', root.calendarFilter);
+        pluginService.savePluginData(root.pluginId, 'calendarFilterInactive', root.calendarFilterInactive);
+
+        helperProcess.loadData();
+    }
+
+    function cyclePriorityFilter() {
+        root.priorityStepIndex += 1;
+        if (root.priorityStepIndex >= root.prioritySteps.length) {
+            root.priorityStepIndex = 0;
+        }
+
+        root.tasksData.tasks = root.tasksData.tasks;
+
+        helperProcess.loadData();
     }
 
     horizontalBarPill: Component {
@@ -321,6 +349,37 @@ PluginComponent {
                     padding: Theme.spacingS
                     anchors.verticalCenter: parent.verticalCenter
 
+                    StyledRect {
+                        id: priorityPill
+                        width: 20
+                        height: 20
+                        color: root.getPriorityColor(root.prioritySteps[root.priorityStepIndex])
+                        border.width: 1
+                        border.color: root.getPriorityColor(root.prioritySteps[root.priorityStepIndex])
+                        radius: Theme.cornerRadius
+
+                        property bool active: true
+
+                        StyledText {
+                            id: priorityPillText
+                            height: 20
+                            text: root.prioritySteps[root.priorityStepIndex].toString()
+                            font.pixelSize: Theme.fontSizeSmall
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            anchors.verticalCenter: parent.verticalCenter
+                            color: Theme.onPrimary
+                        }
+
+                        MouseArea {
+                            anchors.fill: parent
+                            enabled: !root.loading
+                            cursorShape: enabled ? Qt.PointingHandCursor : Qt.ForbiddenCursor
+                            onClicked: {
+                                root.cyclePriorityFilter();
+                            }
+                        }
+                    }
+
                     Repeater {
                         id: calendarFilterRepeater
                         model: root.calendarFilter.concat(root.calendarFilterInactive)
@@ -346,14 +405,14 @@ PluginComponent {
                                 anchors.horizontalCenter: parent.horizontalCenter
                                 anchors.verticalCenter: parent.verticalCenter
                                 color: calendarPill.active ? Theme.onPrimary : Theme.surfaceVariantText
+                            }
 
-                                MouseArea {
-                                    anchors.fill: parent
-                                    enabled: !root.loading && !helperProcess.running
-                                    cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
-                                    onClicked: {
-                                        root.toggleCalendarFilter(calendarPill.modelData);
-                                    }
+                            MouseArea {
+                                anchors.fill: parent
+                                enabled: !root.loading
+                                cursorShape: enabled ? Qt.PointingHandCursor : Qt.ForbiddenCursor
+                                onClicked: {
+                                    root.toggleCalendarFilter(calendarPill.modelData);
                                 }
                             }
                         }
@@ -370,7 +429,7 @@ PluginComponent {
 
                     StyledText {
                         id: refreshTimestampText
-                        text: Qt.formatDateTime(new Date(root.loadDataTimestamp), "hh:mm:ss ~ ") + root.settings.refreshInterval + "m"
+                        text: Qt.formatDateTime(new Date(root.loadDataTimestamp), "hh:mm ~ ") + root.settings.refreshInterval + "m"
                         font.pixelSize: Theme.fontSizeSmall * 0.8
                         font.family: "monospace"
                         color: Theme.surfaceVariantText
@@ -392,8 +451,8 @@ PluginComponent {
                             MouseArea {
                                 id: refreshIconMouseArea
                                 anchors.fill: parent
-                                enabled: !root.loading && !helperProcess.running
-                                cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                                enabled: !root.loading
+                                cursorShape: enabled ? Qt.PointingHandCursor : Qt.ForbiddenCursor
 
                                 onClicked: {
                                     root.loadSettings();
@@ -491,16 +550,7 @@ PluginComponent {
                                                 text: taskRow.modelData.priority.toString()
                                                 font.pixelSize: Theme.fontSizeSmall * 0.8
                                                 font.family: "monospace"
-                                                color: if (taskRow.modelData.priority == 0)
-                                                    Theme.surfaceVariantText
-                                                else if (taskRow.modelData.priority == 1)
-                                                    '#ff7066'
-                                                else if (taskRow.modelData.priority <= 5)
-                                                    "#ffb95b"
-                                                else if (taskRow.modelData.priority <= 9)
-                                                    "#86b7ff"
-                                                else
-                                                    Theme.surfaceVariantText
+                                                color: root.getPriorityColor(taskRow.modelData.priority)
                                                 anchors.verticalCenter: parent.verticalCenter
                                             }
 
@@ -521,8 +571,8 @@ PluginComponent {
 
                                                     MouseArea {
                                                         anchors.fill: parent
-                                                        enabled: !root.loading && !helperProcess.running
-                                                        cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                                                        enabled: !root.loading
+                                                        cursorShape: enabled ? Qt.PointingHandCursor : Qt.ForbiddenCursor
                                                         onClicked: {
                                                             helperProcess.shiftTaskDueTime(taskRow.modelData, false);
                                                         }
@@ -548,8 +598,8 @@ PluginComponent {
 
                                                     MouseArea {
                                                         anchors.fill: parent
-                                                        enabled: !root.loading && !helperProcess.running
-                                                        cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                                                        enabled: !root.loading
+                                                        cursorShape: enabled ? Qt.PointingHandCursor : Qt.ForbiddenCursor
                                                         onClicked: {
                                                             helperProcess.shiftTaskDueTime(taskRow.modelData, true);
                                                         }
@@ -584,8 +634,8 @@ PluginComponent {
 
                                                 MouseArea {
                                                     anchors.fill: parent
-                                                    enabled: !root.loading && !helperProcess.running
-                                                    cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                                                    enabled: !root.loading
+                                                    cursorShape: enabled ? Qt.PointingHandCursor : Qt.ForbiddenCursor
                                                     onClicked: {
                                                         helperProcess.toggleComplete(taskRow.modelData);
                                                     }

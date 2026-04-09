@@ -8,6 +8,6 @@
   "type": "widget",
   "component": "./Main.qml",
   "settings": "./Settings.qml",
-  "permissions": [],
+  "permissions": ["settings_read", "settings_write"],
   "requires": ["python", "python-caldav"]
 }
