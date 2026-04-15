@@ -138,8 +138,6 @@ PluginComponent {
             helperProcess.output = "";
             helperProcess.json = {};
             helperProcess.running = true;
-
-            console.info("running process:", helperProcess.command.join(" "));
         }
 
         onExited: () => {
@@ -161,6 +159,7 @@ PluginComponent {
 
             if (!helperProcess.json.success) {
                 root.logError(helperProcess.json.message || "Unknown error from helper process!", true);
+                root.logError("error when running process:", helperProcess.command.join(" "));
                 // throw new Error(helperProcess.json.message || "Unknown error from helper process!");
             }
         }
@@ -400,7 +399,7 @@ PluginComponent {
                             StyledText {
                                 id: calendarPillText
                                 height: 20
-                                text: root.totalCalendarCount >= 4 ? calendarPill.modelData.substring(0, 3).toUpperCase() : calendarPill.modelData
+                                text: root.totalCalendarCount >= 4 && !hoverHandler.hovered ? calendarPill.modelData.substring(0, 3) + "..." : calendarPill.modelData
                                 font.pixelSize: Theme.fontSizeSmall
                                 anchors.horizontalCenter: parent.horizontalCenter
                                 anchors.verticalCenter: parent.verticalCenter
@@ -414,6 +413,12 @@ PluginComponent {
                                 onClicked: {
                                     root.toggleCalendarFilter(calendarPill.modelData);
                                 }
+                            }
+
+                            HoverHandler {
+                                id: hoverHandler
+                                enabled: true
+                                acceptedModifiers: Qt.NoModifier
                             }
                         }
                     }
@@ -429,7 +434,7 @@ PluginComponent {
 
                     StyledText {
                         id: refreshTimestampText
-                        text: Qt.formatDateTime(new Date(root.loadDataTimestamp), "hh:mm ~ ") + root.settings.refreshInterval + "m"
+                        text: refreshIconHoverHandler.hovered ? "Hold to reset!" : Qt.formatDateTime(new Date(root.loadDataTimestamp), "hh:mm ~ ") + root.settings.refreshInterval + "m"
                         font.pixelSize: Theme.fontSizeSmall * 0.8
                         font.family: "monospace"
                         color: Theme.surfaceVariantText
@@ -465,6 +470,12 @@ PluginComponent {
                                 }
                             }
                         }
+                    }
+
+                    HoverHandler {
+                        id: refreshIconHoverHandler
+                        enabled: true
+                        acceptedModifiers: Qt.NoModifier
                     }
                 }
             }
