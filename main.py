@@ -143,23 +143,16 @@ def __main__(
             else:
                 DTSTAMP = datetime.now(LOCAL_TZ)
 
-            COMPLETE = False
             STATUS = TODO_EVENT_COMPONENT.get("STATUS")
+            COMPLETE = STATUS == "COMPLETED"
 
-            if DTSTAMP.date() == TODAY:
+            if DUE.date() <= TODAY:
                 total_count += 1
-                complete_count += 1
+                if COMPLETE:
+                    complete_count += 1
 
-                if STATUS == "COMPLETED":
-                    COMPLETE = True
-
-            if STATUS == "COMPLETED" and ALL_DAY:
-                COMPLETE = True
-                complete_count += 1
-                total_count += 1
-
-            if STATUS == "NEEDS-ACTION" and DUE.date() <= TODAY:
-                total_count += 1
+            RELATED_TO = TODO_EVENT_COMPONENT.get("RELATED-TO")
+            PARENT_UID = str(RELATED_TO) if RELATED_TO else None
 
             EVENT = {
                 "uid": TODO_EVENT_COMPONENT.get("UID"),
@@ -169,12 +162,39 @@ def __main__(
                 "allDay": ALL_DAY,
                 "priority": TODO_EVENT_COMPONENT.get("PRIORITY", 9),
                 "calendar": CALDAV_CALENDAR,
-                # "raw": TODO_EVENT.get_icalendar_instance().to_ical().decode(),
+                "parentUid": PARENT_UID,
             }
 
             DATA.append(EVENT)
 
-        DATA.sort(key=lambda x: (x.get("completed"), x.get("due")))
+    # Sort: incomplete before complete, then by due date
+    DATA.sort(key=lambda x: (x.get("completed"), x.get("due")))
+
+    # Reorder so children appear right after their parent
+    def _flatten_with_children(tasks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        children_by_parent: dict[str, list[dict[str, Any]]] = {}
+        for t in tasks:
+            pid = t.get("parentUid")
+            if pid:
+                children_by_parent.setdefault(pid, []).append(t)
+
+        seen: set[str] = set()
+        result: list[dict[str, Any]] = []
+        for t in tasks:
+            uid = t.get("uid")
+            if uid in seen:
+                continue
+            if t.get("parentUid"):
+                continue  # skip children in top pass; they get inserted below their parent
+            seen.add(uid)
+            result.append(t)
+            for child in children_by_parent.get(uid, []):
+                if child.get("uid") not in seen:
+                    seen.add(child.get("uid"))
+                    result.append(child)
+        return result
+
+    DATA = _flatten_with_children(DATA)
 
     def current_filter(task: dict[str, Any]) -> bool:
         DUE = task.get("due")
@@ -201,6 +221,11 @@ def __main__(
     if not CURRENT:
         CURRENT = next(
             filter(lambda x: not x.get("completed") and not x.get("allDay"), DATA), None
+        )
+
+    if not CURRENT:
+        CURRENT = next(
+            filter(lambda x: not x.get("completed"), DATA), None
         )
 
     # group tasks by date

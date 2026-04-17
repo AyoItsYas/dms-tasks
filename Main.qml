@@ -311,7 +311,7 @@ PluginComponent {
             // current task
             StyledText {
                 visible: root.tasksData != null && root.tasksData.currentTask != null
-                text: root.tasksData != null && root.tasksData.currentTask != null ? ((root.tasksData.completeCount / root.tasksData.totalCount) * 100).toFixed(0) + "% - " + Qt.formatDateTime(root.tasksData.currentTask.due, "hh:mm") + " : " + root.tasksData.currentTask.summary : ""
+                text: root.tasksData != null && root.tasksData.currentTask != null ? ((root.tasksData.completeCount / root.tasksData.totalCount) * 100).toFixed(0) + "% - " + (root.tasksData.currentTask.allDay ? "" : Qt.formatDateTime(root.tasksData.currentTask.due, "hh:mm") + " : ") + root.tasksData.currentTask.summary : ""
                 font.pixelSize: Theme.fontSizeSmall
                 color: Theme.surfaceText
                 anchors.verticalCenter: parent.verticalCenter
@@ -575,7 +575,7 @@ PluginComponent {
                                 width: parent.width
                                 spacing: Theme.spacingS
 
-                                property var groupTasks: modelData.slice().sort((a, b) => a.completed - b.completed)
+                                property var groupTasks: modelData
 
                                 // group header with due date
                                 StyledText {
@@ -596,15 +596,19 @@ PluginComponent {
                                         spacing: Theme.spacingXS
 
                                         required property var modelData
+                                        property bool isChild: !!taskRow.modelData.parentUid
+                                        property real indent: isChild ? Theme.spacingL : 0
+
+                                        Item { width: taskRow.indent; height: 1; visible: taskRow.isChild }
 
                                         StyledText {
                                             text: taskRow.modelData.summary
-                                            font.pixelSize: Theme.fontSizeMedium
+                                            font.pixelSize: taskRow.isChild ? Theme.fontSizeSmall : Theme.fontSizeMedium
                                             font.strikeout: taskRow.modelData.completed
                                             color: Theme.surfaceText
                                             opacity: taskRow.modelData.completed ? 0.4 : 1.0
                                             elide: Text.ElideRight
-                                            width: parent.width - detailsRow.width - Theme.spacingL - Theme.spacingXS
+                                            width: parent.width - detailsRow.width - Theme.spacingL - Theme.spacingXS - taskRow.indent
                                             anchors.verticalCenter: parent.verticalCenter
                                         }
 
