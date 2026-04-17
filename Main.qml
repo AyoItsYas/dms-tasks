@@ -92,6 +92,7 @@ PluginComponent {
                 root.tasksData = PluginService.loadPluginData(root.pluginId, 'tasksData') || {};
                 root.calendarFilter = PluginService.loadPluginData(root.pluginId, 'calendarFilter') || [pluginData.caldavCalendar];
                 root.calendarFilterInactive = PluginService.loadPluginData(root.pluginId, 'calendarFilterInactive') || [];
+                root.showCompleted = PluginService.loadPluginData(root.pluginId, 'showCompleted') || false;
             }
 
             root.initzialized = true;
@@ -265,7 +266,8 @@ PluginComponent {
         });
     }
 
-    // calander to filters
+    // filters
+    property bool showCompleted: false
     property var prioritySteps: [0, 1, 5, 9, -1]
     property int priorityStepIndex: 4
 
@@ -360,6 +362,32 @@ PluginComponent {
                     anchors.left: parent.left
                     padding: Theme.spacingS
                     anchors.verticalCenter: parent.verticalCenter
+
+                    StyledRect {
+                        id: completedPill
+                        width: 20
+                        height: 20
+                        color: root.showCompleted ? Theme.surfaceVariantText : "transparent"
+                        border.width: 1
+                        border.color: Theme.surfaceVariantText
+                        radius: Theme.cornerRadius
+
+                        DankIcon {
+                            anchors.centerIn: parent
+                            name: "check"
+                            size: 14
+                            color: root.showCompleted ? Theme.onPrimary : Theme.surfaceVariantText
+                        }
+
+                        MouseArea {
+                            anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: {
+                                root.showCompleted = !root.showCompleted;
+                                PluginService.savePluginData(root.pluginId, 'showCompleted', root.showCompleted);
+                            }
+                        }
+                    }
 
                     StyledRect {
                         id: priorityPill
@@ -575,7 +603,7 @@ PluginComponent {
                                 width: parent.width
                                 spacing: Theme.spacingS
 
-                                property var groupTasks: modelData
+                                property var groupTasks: root.showCompleted ? modelData : modelData.filter(t => !t.completed)
 
                                 // group header with due date
                                 StyledText {
