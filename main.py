@@ -228,12 +228,15 @@ def __main__(
             filter(lambda x: not x.get("completed"), DATA), None
         )
 
-    # group tasks by date
+    # group tasks by date, completed tasks always at the end
+    INCOMPLETE = [t for t in DATA if not t["completed"]]
+    COMPLETED = [t for t in DATA if t["completed"]]
 
     TASKS_BY_DATE = {}
-    for TASK in DATA:
+    for TASK in INCOMPLETE + COMPLETED:
         if TASK["due"]:
-            DATE = TASK["due"].date().isoformat()
+            prefix = "z_" if TASK["completed"] else ""
+            DATE = prefix + TASK["due"].date().isoformat()
             if DATE not in TASKS_BY_DATE:
                 TASKS_BY_DATE[DATE] = []
             TASKS_BY_DATE[DATE].append(TASK)
