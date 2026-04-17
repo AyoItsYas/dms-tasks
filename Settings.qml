@@ -93,6 +93,14 @@ PluginSettings {
         }
     }
 
+    ToggleSetting {
+        id: sslVerifySetting
+        enabled: !root.loading
+        settingKey: "caldavSSLVerify"
+        label: "Verify SSL Certificate"
+        defaultValue: false
+    }
+
     DankButton {
         enabled: !root.loading
         width: parent.width
@@ -165,7 +173,7 @@ PluginSettings {
             return false;
         }
 
-        validateProcess.command = ["python3", root.currentDirectory + "main.py", "validate", calDavURLSetting.value, calDavUsernameSetting.value, calDavPasswordSetting.value, calDavCalendarSetting.value, calDavCalendarsSetting.value, "0"];
+        validateProcess.command = ["python3", root.currentDirectory + "main.py", "validate", calDavURLSetting.value, calDavUsernameSetting.value, calDavPasswordSetting.value, calDavCalendarSetting.value, calDavCalendarsSetting.value, sslVerifySetting.value ? "1" : "0", "0"];
         validateProcess.running = true;
     }
 }

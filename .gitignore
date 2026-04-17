@@ -1,3 +1,4 @@
 .env
 .qmlls.ini
 .exclude
+__pycache__

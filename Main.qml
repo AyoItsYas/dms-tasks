@@ -59,7 +59,7 @@ PluginComponent {
             return;
         }
 
-        if (!pluginData.caldavURL || !pluginData.caldavUsername || !pluginData.caldavPassword || !pluginData.caldavCalendar || isNaN(Number(pluginData.refreshInterval)) || Number(pluginData.refreshInterval) <= 0) {
+        if (!pluginData.caldavURL || !pluginData.caldavUsername || !pluginData.caldavPassword || !pluginData.caldavCalendar) {
             root.logError("Please fill in all required settings!", true);
             return;
         }
@@ -70,6 +70,7 @@ PluginComponent {
             caldavPassword: pluginData.caldavPassword,
             caldavCalendar: pluginData.caldavCalendar,
             caldavCalendars: pluginData.caldavCalendars ? pluginData.caldavCalendars.split(",").map(s => s.trim()) : [pluginData.caldavCalendar],
+            caldavSSLVerify: pluginData.caldavSSLVerify !== undefined ? pluginData.caldavSSLVerify : false,
             shiftDueTimeDelta: isNaN(Number(pluginData.shiftDueTimeDelta)) ? 15 : Number(pluginData.shiftDueTimeDelta) // default to 15 minutes
             ,
             refreshInterval: isNaN(Number(pluginData.refreshInterval)) ? 1 : Number(pluginData.refreshInterval) // default to 1 minute
@@ -176,7 +177,7 @@ PluginComponent {
             var mode = command[0];
             var modeArgs = command.slice(1);
 
-            return root.constants.helper.concat([mode]).concat(root.constants.caldavCreds).concat(modeArgs).concat(["0"]);
+            return root.constants.helper.concat([mode]).concat(root.constants.caldavCreds).concat(modeArgs).concat([root.settings.caldavSSLVerify ? "1" : "0"]).concat(["0"]);
         }
 
         function run(commmand, onComplete = null) {
@@ -362,7 +363,7 @@ PluginComponent {
                         StyledText {
                             id: priorityPillText
                             height: 20
-                            text: root.prioritySteps[root.priorityStepIndex].toString()
+                            text: root.prioritySteps[root.priorityStepIndex] < 0 ? "*" : root.prioritySteps[root.priorityStepIndex].toString()
                             font.pixelSize: Theme.fontSizeSmall
                             anchors.horizontalCenter: parent.horizontalCenter
                             anchors.verticalCenter: parent.verticalCenter
@@ -519,14 +520,14 @@ PluginComponent {
                                 width: parent.width
                                 spacing: Theme.spacingS
 
-                                property var groupTasks: modelData
+                                property var groupTasks: modelData.filter(t => !t.completed)
 
                                 // group header with due date
                                 StyledText {
                                     width: parent.width
                                     visible: taskColumn.groupTasks.length > 0
                                     text: Qt.formatDateTime(taskColumn.groupTasks[0].due, "ddd, MMM d")
-                                    font.pixelSize: Theme.fontSizeSmall
+                                    font.pixelSize: Theme.fontSizeMedium
                                     color: Theme.surfaceVariantText
                                 }
 
@@ -536,14 +537,14 @@ PluginComponent {
                                     Row {
                                         id: taskRow
                                         width: tasksGroupColumn.width
-                                        height: Theme.fontSizeSmall * 1.1
+                                        height: Theme.fontSizeMedium * 1.1
                                         spacing: Theme.spacingXS
 
                                         required property var modelData
 
                                         StyledText {
                                             text: taskRow.modelData.summary
-                                            font.pixelSize: Theme.fontSizeSmall
+                                            font.pixelSize: Theme.fontSizeMedium
                                             color: Theme.surfaceText
                                             elide: Text.ElideRight
                                             width: parent.width - detailsRow.width - Theme.spacingL - Theme.spacingXS
@@ -559,15 +560,16 @@ PluginComponent {
                                             StyledText {
                                                 id: priorityText
                                                 text: taskRow.modelData.priority.toString()
-                                                font.pixelSize: Theme.fontSizeSmall * 0.8
+                                                font.pixelSize: Theme.fontSizeSmall
                                                 font.family: "monospace"
                                                 color: root.getPriorityColor(taskRow.modelData.priority)
                                                 anchors.verticalCenter: parent.verticalCenter
                                             }
 
-                                            // due time with shift buttons
+                                            // due time with shift buttons (hidden for all-day tasks)
                                             Row {
                                                 id: timestampRow
+                                                visible: !taskRow.modelData.allDay
                                                 padding: Theme.spacingXS
                                                 spacing: Theme.spacingS
                                                 height: parent.height
@@ -575,7 +577,7 @@ PluginComponent {
                                                 StyledText {
                                                     id: timestampShiftDown
                                                     text: '-'
-                                                    font.pixelSize: Theme.fontSizeSmall * 0.8
+                                                    font.pixelSize: Theme.fontSizeSmall
                                                     font.family: "monospace"
                                                     color: Theme.surfaceVariantText
                                                     anchors.verticalCenter: parent.verticalCenter
@@ -592,8 +594,8 @@ PluginComponent {
 
                                                 StyledText {
                                                     id: timestampText
-                                                    text: taskRow.modelData.allDay ? "XX:XX" : Qt.formatDateTime(new Date(taskRow.modelData.due), "hh:mm")
-                                                    font.pixelSize: Theme.fontSizeSmall * 0.8
+                                                    text: Qt.formatDateTime(new Date(taskRow.modelData.due), "hh:mm")
+                                                    font.pixelSize: Theme.fontSizeSmall
                                                     font.family: "monospace"
                                                     color: Theme.surfaceVariantText
                                                     anchors.verticalCenter: parent.verticalCenter
@@ -602,7 +604,7 @@ PluginComponent {
                                                 StyledText {
                                                     id: timestampShiftUp
                                                     text: '+'
-                                                    font.pixelSize: Theme.fontSizeSmall * 0.8
+                                                    font.pixelSize: Theme.fontSizeSmall
                                                     font.family: "monospace"
                                                     color: Theme.surfaceVariantText
                                                     anchors.verticalCenter: parent.verticalCenter
@@ -621,13 +623,11 @@ PluginComponent {
                                             // checkbox
                                             StyledRect {
                                                 id: checkbox
-                                                width: 10
+                                                width: Theme.fontSizeSmall
                                                 height: width
                                                 radius: 1
-                                                // color: completed ? Theme.surfaceVariantText : "transparent"
                                                 color: "transparent"
                                                 border.width: 1
-                                                // border.color: completed ? Theme.success : Theme.error
                                                 border.color: Theme.surfaceVariantText
                                                 anchors.verticalCenter: parent.verticalCenter
 
