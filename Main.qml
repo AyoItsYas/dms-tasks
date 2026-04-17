@@ -219,6 +219,18 @@ PluginComponent {
             helperProcess.run(["toggle_complete", task.calendar, task.uid], helperProcess.loadData);
         }
 
+        function addTask(summary) {
+            if (!_preCheck()) {
+                return;
+            }
+
+            if (!summary || summary.trim() === "") {
+                return;
+            }
+
+            helperProcess.run(["add_task", root.settings.caldavCalendar, summary.trim()], helperProcess.loadData);
+        }
+
         function shiftTaskDueTime(task, forward = false, onComplete = helperProcess.loadData) {
             if (!_preCheck()) {
                 return;
@@ -481,9 +493,52 @@ PluginComponent {
                 }
             }
 
+            // add task input
+            Row {
+                id: addTaskRow
+                width: parent.width - Theme.spacingS * 2
+                height: addTaskInput.height + Theme.spacingS
+                anchors.horizontalCenter: parent.horizontalCenter
+                spacing: Theme.spacingXS
+
+                Rectangle {
+                    width: parent.width
+                    height: addTaskInput.height
+                    color: Qt.rgba(Theme.surfaceVariantText.r, Theme.surfaceVariantText.g, Theme.surfaceVariantText.b, 0.15)
+                    radius: Theme.cornerRadius
+                    anchors.verticalCenter: parent.verticalCenter
+
+                    TextInput {
+                        id: addTaskInput
+                        width: parent.width - Theme.spacingS * 2
+                        anchors.centerIn: parent
+                        font.pixelSize: Theme.fontSizeMedium
+                        color: Theme.surfaceText
+                        clip: true
+
+                        property string placeholderText: "Add a new task..."
+
+                        Text {
+                            text: addTaskInput.placeholderText
+                            font.pixelSize: addTaskInput.font.pixelSize
+                            color: Theme.surfaceVariantText
+                            visible: !addTaskInput.text && !addTaskInput.activeFocus
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+
+                        Keys.onReturnPressed: {
+                            if (addTaskInput.text.trim() !== "") {
+                                helperProcess.addTask(addTaskInput.text);
+                                addTaskInput.text = "";
+                            }
+                        }
+                    }
+                }
+            }
+
             Item {
                 width: parent.width
-                implicitHeight: root.popoutHeight - popoutColumn.headerHeight - popoutColumn.detailsHeight - Theme.spacingXL
+                implicitHeight: root.popoutHeight - popoutColumn.headerHeight - popoutColumn.detailsHeight - addTaskRow.height - Theme.spacingXL
 
                 // no tasks text
                 StyledText {
@@ -520,7 +575,7 @@ PluginComponent {
                                 width: parent.width
                                 spacing: Theme.spacingS
 
-                                property var groupTasks: modelData.filter(t => !t.completed)
+                                property var groupTasks: modelData.slice().sort((a, b) => a.completed - b.completed)
 
                                 // group header with due date
                                 StyledText {
@@ -545,7 +600,9 @@ PluginComponent {
                                         StyledText {
                                             text: taskRow.modelData.summary
                                             font.pixelSize: Theme.fontSizeMedium
+                                            font.strikeout: taskRow.modelData.completed
                                             color: Theme.surfaceText
+                                            opacity: taskRow.modelData.completed ? 0.4 : 1.0
                                             elide: Text.ElideRight
                                             width: parent.width - detailsRow.width - Theme.spacingL - Theme.spacingXS
                                             anchors.verticalCenter: parent.verticalCenter

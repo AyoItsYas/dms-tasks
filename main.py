@@ -100,9 +100,6 @@ def __main__(
         for TODO_EVENT in TODO_EVENTS:
             TODO_EVENT_COMPONENT = TODO_EVENT.get_icalendar_component()
 
-            if TODO_EVENT_COMPONENT.get("RELATED-TO"):
-                continue
-
             TASK_PRIORITY = TODO_EVENT_COMPONENT.get("PRIORITY", 9)
             if PRIORITY is not None and PRIORITY >= 0 and TASK_PRIORITY != PRIORITY:
                 continue
@@ -177,7 +174,7 @@ def __main__(
 
             DATA.append(EVENT)
 
-        DATA.sort(key=lambda x: x.get("due"))
+        DATA.sort(key=lambda x: (x.get("completed"), x.get("due")))
 
     def current_filter(task: dict[str, Any]) -> bool:
         DUE = task.get("due")
@@ -363,6 +360,33 @@ def shift_due_timestamp(
     return {}
 
 
+def add_task(
+    CALDAV_URL: str,
+    CALDAV_USERNAME: str,
+    CALDAV_PASSWORD: str,
+    CALDAV_CALENDAR: str,
+    SUMMARY: str,
+):
+    _caldav_errors.clear()
+    CALENDAR: CalendarResult = get_calendar(
+        url=CALDAV_URL,
+        username=CALDAV_USERNAME,
+        password=CALDAV_PASSWORD,
+        calendar_name=CALDAV_CALENDAR,
+        ssl_verify_cert=SSL_VERIFY,
+    )  # pyright: ignore[reportCallIssue]
+
+    if not CALENDAR:
+        detail = _caldav_errors[-1] if _caldav_errors else "check URL, credentials, and calendar name"
+        raise ValueError(
+            f"Calendar '{CALDAV_CALENDAR}' not found on {CALDAV_URL}: {detail}"
+        )
+
+    CALENDAR.save_todo(summary=SUMMARY)
+
+    return {}
+
+
 def validate(
     CALDAV_URL: str,
     CALDAV_USERNAME: str,
@@ -399,6 +423,7 @@ if __name__ == "__main__":
         "load": __main__,
         "toggle_complete": toggle_complete,
         "shift_due_timestamp": shift_due_timestamp,
+        "add_task": add_task,
         "validate": validate,
     }
 
