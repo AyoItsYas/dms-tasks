@@ -350,6 +350,8 @@ PluginComponent {
             detailsText: "Your upcoming tasks"
             showCloseButton: true
 
+            DankTooltipV2 { id: tooltip }
+
             Row {
                 height: popoutColumn.detailsHeight
                 width: parent.width - Theme.spacingS
@@ -382,10 +384,13 @@ PluginComponent {
                         MouseArea {
                             anchors.fill: parent
                             cursorShape: Qt.PointingHandCursor
+                            hoverEnabled: true
                             onClicked: {
                                 root.showCompleted = !root.showCompleted;
                                 PluginService.savePluginData(root.pluginId, 'showCompleted', root.showCompleted);
                             }
+                            onEntered: tooltip.show(root.showCompleted ? "Hide completed" : "Show completed", completedPill)
+                            onExited: tooltip.hide()
                         }
                     }
 
@@ -413,10 +418,13 @@ PluginComponent {
                         MouseArea {
                             anchors.fill: parent
                             enabled: !root.loading
+                            hoverEnabled: true
                             cursorShape: enabled ? Qt.PointingHandCursor : Qt.ForbiddenCursor
                             onClicked: {
                                 root.cyclePriorityFilter();
                             }
+                            onEntered: tooltip.show("Priority filter (click to cycle)", priorityPill)
+                            onExited: tooltip.hide()
                         }
                     }
 
@@ -450,16 +458,24 @@ PluginComponent {
                             MouseArea {
                                 anchors.fill: parent
                                 enabled: !root.loading
+                                hoverEnabled: true
                                 cursorShape: enabled ? Qt.PointingHandCursor : Qt.ForbiddenCursor
                                 onClicked: {
                                     root.toggleCalendarFilter(calendarPill.modelData);
                                 }
+                                onEntered: {
+                                    hoverHandler.hovered = true;
+                                    tooltip.show("Toggle calendar: " + calendarPill.modelData, calendarPill);
+                                }
+                                onExited: {
+                                    hoverHandler.hovered = false;
+                                    tooltip.hide();
+                                }
                             }
 
-                            HoverHandler {
+                            QtObject {
                                 id: hoverHandler
-                                enabled: true
-                                acceptedModifiers: Qt.NoModifier
+                                property bool hovered: false
                             }
                         }
                     }
