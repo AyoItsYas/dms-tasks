@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import json
+import logging
 import sys
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
+import urllib3
 from caldav import get_calendar
 
 if TYPE_CHECKING:
@@ -17,6 +19,21 @@ if TYPE_CHECKING:
 
 
 DEBUG = bool(int(sys.argv.pop(-1)))
+SSL_VERIFY = bool(int(sys.argv.pop(-1)))
+
+if not SSL_VERIFY:
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+# Capture caldav library errors so they appear in JSON output
+_caldav_errors: list[str] = []
+
+
+class _CaldavErrorHandler(logging.Handler):
+    def emit(self, record: logging.LogRecord):
+        _caldav_errors.append(record.getMessage())
+
+
+logging.getLogger("caldav").addHandler(_CaldavErrorHandler())
 
 
 def debug(*args: Any, **kwargs: Any):
@@ -59,26 +76,35 @@ def __main__(
     total_count, complete_count = 0, 0
 
     for CALDAV_CALENDAR in CALDAV_CALENDARS.split(","):
+        _caldav_errors.clear()
         CALENDAR: CalendarResult = get_calendar(
             url=CALDAV_URL,
             username=CALDAV_USERNAME,
             password=CALDAV_PASSWORD,
             calendar_name=CALDAV_CALENDAR,
+            ssl_verify_cert=SSL_VERIFY,
         )  # pyright: ignore[reportCallIssue]
 
-        TODO_EVENTS = (
-            CALENDAR.search(todo=True, include_completed=True, priority=PRIORITY)
-            if PRIORITY >= 0
-            else CALENDAR.search(
-                todo=True,
-                include_completed=True,
+        if not CALENDAR:
+            detail = (
+                _caldav_errors[-1]
+                if _caldav_errors
+                else "check URL, credentials, and calendar name"
             )
+            raise ValueError(
+                f"Calendar '{CALDAV_CALENDAR}' not found on {CALDAV_URL}: {detail}"
+            )
+
+        TODO_EVENTS = CALENDAR.search(
+            todo=True,
+            include_completed=True,
         )
 
         for TODO_EVENT in TODO_EVENTS:
             TODO_EVENT_COMPONENT = TODO_EVENT.get_icalendar_component()
 
-            if TODO_EVENT_COMPONENT.get("RELATED-TO"):
+            TASK_PRIORITY = TODO_EVENT_COMPONENT.get("PRIORITY", 9)
+            if PRIORITY is not None and PRIORITY >= 0 and TASK_PRIORITY != PRIORITY:
                 continue
 
             debug(
@@ -108,31 +134,28 @@ def __main__(
                     hour=0, minute=0, second=0, microsecond=0, tzinfo=LOCAL_TZ
                 )
 
-            DTSTAMP = TODO_EVENT_COMPONENT.get("DTSTAMP").dt.replace(
-                tzinfo=(
-                    ZoneInfo(TODO_EVENT_COMPONENT.get("TZID"))
-                    if TODO_EVENT_COMPONENT.get("TZID")
-                    else LOCAL_TZ
+            DTSTAMP_RAW = TODO_EVENT_COMPONENT.get("DTSTAMP")
+            if DTSTAMP_RAW:
+                DTSTAMP = DTSTAMP_RAW.dt.replace(
+                    tzinfo=(
+                        ZoneInfo(TODO_EVENT_COMPONENT.get("TZID"))
+                        if TODO_EVENT_COMPONENT.get("TZID")
+                        else LOCAL_TZ
+                    )
                 )
-            )
+            else:
+                DTSTAMP = datetime.now(LOCAL_TZ)
 
-            COMPLETE = False
             STATUS = TODO_EVENT_COMPONENT.get("STATUS")
+            COMPLETE = STATUS == "COMPLETED"
 
-            if DTSTAMP.date() == TODAY:
+            if DUE.date() <= TODAY:
                 total_count += 1
-                complete_count += 1
+                if COMPLETE:
+                    complete_count += 1
 
-                if STATUS == "COMPLETED":
-                    COMPLETE = True
-
-            if STATUS == "COMPLETED" and ALL_DAY:
-                COMPLETE = True
-                complete_count += 1
-                total_count += 1
-
-            if STATUS == "NEEDS-ACTION" and DUE.date() <= TODAY:
-                total_count += 1
+            RELATED_TO = TODO_EVENT_COMPONENT.get("RELATED-TO")
+            PARENT_UID = str(RELATED_TO) if RELATED_TO else None
 
             EVENT = {
                 "uid": TODO_EVENT_COMPONENT.get("UID"),
@@ -142,12 +165,39 @@ def __main__(
                 "allDay": ALL_DAY,
                 "priority": TODO_EVENT_COMPONENT.get("PRIORITY", 9),
                 "calendar": CALDAV_CALENDAR,
-                # "raw": TODO_EVENT.get_icalendar_instance().to_ical().decode(),
+                "parentUid": PARENT_UID,
             }
 
             DATA.append(EVENT)
 
-        DATA.sort(key=lambda x: x.get("due"))
+    # Sort: incomplete before complete, then by due date
+    DATA.sort(key=lambda x: (x.get("completed"), x.get("due")))
+
+    # Reorder so children appear right after their parent
+    def _flatten_with_children(tasks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        children_by_parent: dict[str, list[dict[str, Any]]] = {}
+        for t in tasks:
+            pid = t.get("parentUid")
+            if pid:
+                children_by_parent.setdefault(pid, []).append(t)
+
+        seen: set[str] = set()
+        result: list[dict[str, Any]] = []
+        for t in tasks:
+            uid = t.get("uid")
+            if uid in seen:
+                continue
+            if t.get("parentUid"):
+                continue  # skip children in top pass; they get inserted below their parent
+            seen.add(uid)
+            result.append(t)
+            for child in children_by_parent.get(uid, []):
+                if child.get("uid") not in seen:
+                    seen.add(child.get("uid"))
+                    result.append(child)
+        return result
+
+    DATA = _flatten_with_children(DATA)
 
     def current_filter(task: dict[str, Any]) -> bool:
         DUE = task.get("due")
@@ -176,12 +226,18 @@ def __main__(
             filter(lambda x: not x.get("completed") and not x.get("allDay"), DATA), None
         )
 
-    # group tasks by date
+    if not CURRENT:
+        CURRENT = next(filter(lambda x: not x.get("completed"), DATA), None)
+
+    # group tasks by date, completed tasks always at the end
+    INCOMPLETE = [t for t in DATA if not t["completed"]]
+    COMPLETED = [t for t in DATA if t["completed"]]
 
     TASKS_BY_DATE = {}
-    for TASK in DATA:
+    for TASK in INCOMPLETE + COMPLETED:
         if TASK["due"]:
-            DATE = TASK["due"].date().isoformat()
+            prefix = "z_" if TASK["completed"] else ""
+            DATE = prefix + TASK["due"].date().isoformat()
             if DATE not in TASKS_BY_DATE:
                 TASKS_BY_DATE[DATE] = []
             TASKS_BY_DATE[DATE].append(TASK)
@@ -201,12 +257,24 @@ def toggle_complete(
     CALDAV_CALENDAR: str,
     UID: str,
 ):
+    _caldav_errors.clear()
     CALENDAR: CalendarResult = get_calendar(
         url=CALDAV_URL,
         username=CALDAV_USERNAME,
         password=CALDAV_PASSWORD,
         calendar_name=CALDAV_CALENDAR,
+        ssl_verify_cert=SSL_VERIFY,
     )  # pyright: ignore[reportCallIssue]
+
+    if not CALENDAR:
+        detail = (
+            _caldav_errors[-1]
+            if _caldav_errors
+            else "check URL, credentials, and calendar name"
+        )
+        raise ValueError(
+            f"Calendar '{CALDAV_CALENDAR}' not found on {CALDAV_URL}: {detail}"
+        )
 
     TODO_EVENTS = CALENDAR.search(todo=True, include_completed=True, uid=UID)
 
@@ -276,12 +344,24 @@ def shift_due_timestamp(
     except ValueError:
         raise ValueError("SHIFT_FORWARD must be a boolean (0 or 1)")
 
+    _caldav_errors.clear()
     CALENDAR: CalendarResult = get_calendar(
         url=CALDAV_URL,
         username=CALDAV_USERNAME,
         password=CALDAV_PASSWORD,
         calendar_name=CALDAV_CALENDAR,
+        ssl_verify_cert=SSL_VERIFY,
     )  # pyright: ignore[reportCallIssue]
+
+    if not CALENDAR:
+        detail = (
+            _caldav_errors[-1]
+            if _caldav_errors
+            else "check URL, credentials, and calendar name"
+        )
+        raise ValueError(
+            f"Calendar '{CALDAV_CALENDAR}' not found on {CALDAV_URL}: {detail}"
+        )
 
     TODO_EVENTS = CALENDAR.search(todo=True, include_completed=True, uid=UID)
 
@@ -317,6 +397,37 @@ def shift_due_timestamp(
     return {}
 
 
+def add_task(
+    CALDAV_URL: str,
+    CALDAV_USERNAME: str,
+    CALDAV_PASSWORD: str,
+    CALDAV_CALENDAR: str,
+    SUMMARY: str,
+):
+    _caldav_errors.clear()
+    CALENDAR: CalendarResult = get_calendar(
+        url=CALDAV_URL,
+        username=CALDAV_USERNAME,
+        password=CALDAV_PASSWORD,
+        calendar_name=CALDAV_CALENDAR,
+        ssl_verify_cert=SSL_VERIFY,
+    )  # pyright: ignore[reportCallIssue]
+
+    if not CALENDAR:
+        detail = (
+            _caldav_errors[-1]
+            if _caldav_errors
+            else "check URL, credentials, and calendar name"
+        )
+        raise ValueError(
+            f"Calendar '{CALDAV_CALENDAR}' not found on {CALDAV_URL}: {detail}"
+        )
+
+    CALENDAR.save_todo(summary=SUMMARY)
+
+    return {}
+
+
 def validate(
     CALDAV_URL: str,
     CALDAV_USERNAME: str,
@@ -331,6 +442,7 @@ def validate(
                 username=CALDAV_USERNAME,
                 password=CALDAV_PASSWORD,
                 calendar_name=CALENDAR,
+                ssl_verify_cert=SSL_VERIFY,
             )  # pyright: ignore[reportCallIssue]
             if not CAL:
                 raise ValueError(
@@ -352,6 +464,7 @@ if __name__ == "__main__":
         "load": __main__,
         "toggle_complete": toggle_complete,
         "shift_due_timestamp": shift_due_timestamp,
+        "add_task": add_task,
         "validate": validate,
     }
 

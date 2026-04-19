@@ -59,7 +59,7 @@ PluginComponent {
             return;
         }
 
-        if (!pluginData.caldavURL || !pluginData.caldavUsername || !pluginData.caldavPassword || !pluginData.caldavCalendar || isNaN(Number(pluginData.refreshInterval)) || Number(pluginData.refreshInterval) <= 0) {
+        if (!pluginData.caldavURL || !pluginData.caldavUsername || !pluginData.caldavPassword || !pluginData.caldavCalendar) {
             root.logError("Please fill in all required settings!", true);
             return;
         }
@@ -70,6 +70,7 @@ PluginComponent {
             caldavPassword: pluginData.caldavPassword,
             caldavCalendar: pluginData.caldavCalendar,
             caldavCalendars: pluginData.caldavCalendars ? pluginData.caldavCalendars.split(",").map(s => s.trim()) : [pluginData.caldavCalendar],
+            caldavSSLVerify: pluginData.caldavSSLVerify !== undefined ? pluginData.caldavSSLVerify : false,
             shiftDueTimeDelta: isNaN(Number(pluginData.shiftDueTimeDelta)) ? 15 : Number(pluginData.shiftDueTimeDelta) // default to 15 minutes
             ,
             refreshInterval: isNaN(Number(pluginData.refreshInterval)) ? 1 : Number(pluginData.refreshInterval) // default to 1 minute
@@ -91,6 +92,7 @@ PluginComponent {
                 root.tasksData = PluginService.loadPluginData(root.pluginId, 'tasksData') || {};
                 root.calendarFilter = PluginService.loadPluginData(root.pluginId, 'calendarFilter') || [pluginData.caldavCalendar];
                 root.calendarFilterInactive = PluginService.loadPluginData(root.pluginId, 'calendarFilterInactive') || [];
+                root.showCompleted = PluginService.loadPluginData(root.pluginId, 'showCompleted') || false;
             }
 
             root.initzialized = true;
@@ -176,7 +178,7 @@ PluginComponent {
             var mode = command[0];
             var modeArgs = command.slice(1);
 
-            return root.constants.helper.concat([mode]).concat(root.constants.caldavCreds).concat(modeArgs).concat(["0"]);
+            return root.constants.helper.concat([mode]).concat(root.constants.caldavCreds).concat(modeArgs).concat([root.settings.caldavSSLVerify ? "1" : "0"]).concat(["0"]);
         }
 
         function run(commmand, onComplete = null) {
@@ -218,6 +220,18 @@ PluginComponent {
             helperProcess.run(["toggle_complete", task.calendar, task.uid], helperProcess.loadData);
         }
 
+        function addTask(summary) {
+            if (!_preCheck()) {
+                return;
+            }
+
+            if (!summary || summary.trim() === "") {
+                return;
+            }
+
+            helperProcess.run(["add_task", root.settings.caldavCalendar, summary.trim()], helperProcess.loadData);
+        }
+
         function shiftTaskDueTime(task, forward = false, onComplete = helperProcess.loadData) {
             if (!_preCheck()) {
                 return;
@@ -252,7 +266,8 @@ PluginComponent {
         });
     }
 
-    // calander to filters
+    // filters
+    property bool showCompleted: false
     property var prioritySteps: [0, 1, 5, 9, -1]
     property int priorityStepIndex: 4
 
@@ -298,7 +313,7 @@ PluginComponent {
             // current task
             StyledText {
                 visible: root.tasksData != null && root.tasksData.currentTask != null
-                text: root.tasksData != null && root.tasksData.currentTask != null ? ((root.tasksData.completeCount / root.tasksData.totalCount) * 100).toFixed(0) + "% - " + Qt.formatDateTime(root.tasksData.currentTask.due, "hh:mm") + " : " + root.tasksData.currentTask.summary : ""
+                text: root.tasksData != null && root.tasksData.currentTask != null ? ((root.tasksData.completeCount / root.tasksData.totalCount) * 100).toFixed(0) + "% - " + (root.tasksData.currentTask.allDay ? "" : Qt.formatDateTime(root.tasksData.currentTask.due, "hh:mm") + " : ") + root.tasksData.currentTask.summary : ""
                 font.pixelSize: Theme.fontSizeSmall
                 color: Theme.surfaceText
                 anchors.verticalCenter: parent.verticalCenter
@@ -334,6 +349,11 @@ PluginComponent {
             headerText: "Tasks"
             detailsText: "Your upcoming tasks"
             showCloseButton: true
+            spacing: Theme.spacingXS
+
+            DankTooltipV2 {
+                id: tooltip
+            }
 
             Row {
                 height: popoutColumn.detailsHeight
@@ -349,6 +369,35 @@ PluginComponent {
                     anchors.verticalCenter: parent.verticalCenter
 
                     StyledRect {
+                        id: completedPill
+                        width: 20
+                        height: 20
+                        color: root.showCompleted ? Theme.surfaceVariantText : "transparent"
+                        border.width: 1
+                        border.color: Theme.surfaceVariantText
+                        radius: Theme.cornerRadius
+
+                        DankIcon {
+                            anchors.centerIn: parent
+                            name: "check"
+                            size: 14
+                            color: root.showCompleted ? Theme.onPrimary : Theme.surfaceVariantText
+                        }
+
+                        MouseArea {
+                            anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
+                            hoverEnabled: true
+                            onClicked: {
+                                root.showCompleted = !root.showCompleted;
+                                PluginService.savePluginData(root.pluginId, 'showCompleted', root.showCompleted);
+                            }
+                            onEntered: tooltip.show(root.showCompleted ? "Hide completed" : "Show completed", completedPill)
+                            onExited: tooltip.hide()
+                        }
+                    }
+
+                    StyledRect {
                         id: priorityPill
                         width: 20
                         height: 20
@@ -362,7 +411,7 @@ PluginComponent {
                         StyledText {
                             id: priorityPillText
                             height: 20
-                            text: root.prioritySteps[root.priorityStepIndex].toString()
+                            text: root.prioritySteps[root.priorityStepIndex] < 0 ? "*" : root.prioritySteps[root.priorityStepIndex].toString()
                             font.pixelSize: Theme.fontSizeSmall
                             anchors.horizontalCenter: parent.horizontalCenter
                             anchors.verticalCenter: parent.verticalCenter
@@ -372,10 +421,13 @@ PluginComponent {
                         MouseArea {
                             anchors.fill: parent
                             enabled: !root.loading
+                            hoverEnabled: true
                             cursorShape: enabled ? Qt.PointingHandCursor : Qt.ForbiddenCursor
                             onClicked: {
                                 root.cyclePriorityFilter();
                             }
+                            onEntered: tooltip.show("Priority filter (click to cycle)", priorityPill)
+                            onExited: tooltip.hide()
                         }
                     }
 
@@ -399,7 +451,7 @@ PluginComponent {
                             StyledText {
                                 id: calendarPillText
                                 height: 20
-                                text: root.totalCalendarCount >= 4 && !hoverHandler.hovered ? calendarPill.modelData.substring(0, 3) + "..." : calendarPill.modelData
+                                text: root.totalCalendarCount >= 3 && !hoverHandler.hovered ? calendarPill.modelData.substring(0, 3) + "..." : calendarPill.modelData
                                 font.pixelSize: Theme.fontSizeSmall
                                 anchors.horizontalCenter: parent.horizontalCenter
                                 anchors.verticalCenter: parent.verticalCenter
@@ -409,16 +461,24 @@ PluginComponent {
                             MouseArea {
                                 anchors.fill: parent
                                 enabled: !root.loading
+                                hoverEnabled: true
                                 cursorShape: enabled ? Qt.PointingHandCursor : Qt.ForbiddenCursor
                                 onClicked: {
                                     root.toggleCalendarFilter(calendarPill.modelData);
                                 }
+                                onEntered: {
+                                    hoverHandler.hovered = true;
+                                    tooltip.show("Toggle calendar: " + calendarPill.modelData, calendarPill);
+                                }
+                                onExited: {
+                                    hoverHandler.hovered = false;
+                                    tooltip.hide();
+                                }
                             }
 
-                            HoverHandler {
+                            QtObject {
                                 id: hoverHandler
-                                enabled: true
-                                acceptedModifiers: Qt.NoModifier
+                                property bool hovered: false
                             }
                         }
                     }
@@ -434,7 +494,7 @@ PluginComponent {
 
                     StyledText {
                         id: refreshTimestampText
-                        text: refreshIconHoverHandler.hovered ? "Hold to reset!" : Qt.formatDateTime(new Date(root.loadDataTimestamp), "hh:mm ~ ") + root.settings.refreshInterval + "m"
+                        text: Qt.formatDateTime(new Date(root.loadDataTimestamp), "hh:mm ~ ") + root.settings.refreshInterval + "m"
                         font.pixelSize: Theme.fontSizeSmall * 0.8
                         font.family: "monospace"
                         color: Theme.surfaceVariantText
@@ -444,6 +504,9 @@ PluginComponent {
                     Rectangle {
                         width: refreshIcon.width
                         height: width
+                        border.width: 0
+                        radius: Theme.cornerRadius
+
                         color: "transparent"
                         anchors.verticalCenter: parent.verticalCenter
 
@@ -468,21 +531,62 @@ PluginComponent {
                                     root.loadSettings(true);
                                     helperProcess.loadData();
                                 }
+
+                                onEntered: tooltip.show("Hold to reset!", refreshButton)
+                                onExited: tooltip.hide()
                             }
                         }
                     }
+                }
+            }
 
-                    HoverHandler {
-                        id: refreshIconHoverHandler
-                        enabled: true
-                        acceptedModifiers: Qt.NoModifier
+            // add task input
+            Row {
+                id: addTaskRow
+                width: parent.width - Theme.spacingS * 2
+                height: addTaskInput.height + Theme.spacingS
+                anchors.horizontalCenter: parent.horizontalCenter
+                spacing: Theme.spacingXS
+
+                Rectangle {
+                    width: parent.width
+                    height: addTaskInput.height
+                    color: Qt.rgba(Theme.surfaceVariantText.r, Theme.surfaceVariantText.g, Theme.surfaceVariantText.b, 0.15)
+                    radius: Theme.cornerRadius
+                    anchors.verticalCenter: parent.verticalCenter
+
+                    TextInput {
+                        id: addTaskInput
+                        width: parent.width - Theme.spacingS * 2
+                        anchors.centerIn: parent
+                        font.pixelSize: Theme.fontSizeSmall
+                        color: Theme.surfaceText
+                        padding: Theme.spacingXS
+                        clip: true
+
+                        property string placeholderText: "Add a new task..."
+
+                        Text {
+                            text: addTaskInput.placeholderText
+                            font.pixelSize: addTaskInput.font.pixelSize
+                            color: Theme.surfaceVariantText
+                            visible: !addTaskInput.text && !addTaskInput.activeFocus
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+
+                        Keys.onReturnPressed: {
+                            if (addTaskInput.text.trim() !== "") {
+                                helperProcess.addTask(addTaskInput.text);
+                                addTaskInput.text = "";
+                            }
+                        }
                     }
                 }
             }
 
             Item {
                 width: parent.width
-                implicitHeight: root.popoutHeight - popoutColumn.headerHeight - popoutColumn.detailsHeight - Theme.spacingXL
+                implicitHeight: root.popoutHeight - popoutColumn.headerHeight - popoutColumn.detailsHeight - addTaskRow.height - Theme.spacingXL
 
                 // no tasks text
                 StyledText {
@@ -506,7 +610,7 @@ PluginComponent {
                         id: tasksGroupColumn
                         width: parent.width
                         padding: Theme.spacingS
-                        spacing: Theme.spacingM
+                        spacing: Theme.spacingL
 
                         // group tasks by due date
                         Repeater {
@@ -517,9 +621,9 @@ PluginComponent {
                                 id: taskColumn
                                 required property var modelData
                                 width: parent.width
-                                spacing: Theme.spacingS
+                                spacing: Theme.spacingXS
 
-                                property var groupTasks: modelData
+                                property var groupTasks: root.showCompleted ? modelData : modelData.filter(t => !t.completed)
 
                                 // group header with due date
                                 StyledText {
@@ -528,6 +632,8 @@ PluginComponent {
                                     text: Qt.formatDateTime(taskColumn.groupTasks[0].due, "ddd, MMM d")
                                     font.pixelSize: Theme.fontSizeSmall
                                     color: Theme.surfaceVariantText
+                                    font.bold: true
+                                    font.weight: Font.Bold
                                 }
 
                                 Repeater {
@@ -536,17 +642,27 @@ PluginComponent {
                                     Row {
                                         id: taskRow
                                         width: tasksGroupColumn.width
-                                        height: Theme.fontSizeSmall * 1.1
+                                        height: Theme.fontSizeMedium * 1.1
                                         spacing: Theme.spacingXS
 
                                         required property var modelData
+                                        property bool isChild: !!taskRow.modelData.parentUid
+                                        property real indent: isChild ? Theme.spacingL : 0
+
+                                        Item {
+                                            width: taskRow.indent
+                                            height: 1
+                                            visible: taskRow.isChild
+                                        }
 
                                         StyledText {
                                             text: taskRow.modelData.summary
                                             font.pixelSize: Theme.fontSizeSmall
+                                            font.strikeout: taskRow.modelData.completed
                                             color: Theme.surfaceText
+                                            opacity: taskRow.modelData.completed ? 0.4 : 1.0
                                             elide: Text.ElideRight
-                                            width: parent.width - detailsRow.width - Theme.spacingL - Theme.spacingXS
+                                            width: parent.width - detailsRow.width - Theme.spacingL - Theme.spacingXS - taskRow.indent - (taskRow.isChild ? Theme.spacingXS : 0)
                                             anchors.verticalCenter: parent.verticalCenter
                                         }
 
@@ -556,18 +672,12 @@ PluginComponent {
                                             spacing: Theme.spacingS
                                             height: parent.height
 
-                                            StyledText {
-                                                id: priorityText
-                                                text: taskRow.modelData.priority.toString()
-                                                font.pixelSize: Theme.fontSizeSmall * 0.8
-                                                font.family: "monospace"
-                                                color: root.getPriorityColor(taskRow.modelData.priority)
-                                                anchors.verticalCenter: parent.verticalCenter
-                                            }
+                                            property var detailsFontSize: Theme.fontSizeSmall * 0.8
 
-                                            // due time with shift buttons
+                                            // due time with shift buttons (hidden for all-day tasks)
                                             Row {
                                                 id: timestampRow
+                                                visible: !taskRow.modelData.allDay
                                                 padding: Theme.spacingXS
                                                 spacing: Theme.spacingS
                                                 height: parent.height
@@ -575,7 +685,7 @@ PluginComponent {
                                                 StyledText {
                                                     id: timestampShiftDown
                                                     text: '-'
-                                                    font.pixelSize: Theme.fontSizeSmall * 0.8
+                                                    font.pixelSize: detailsRow.detailsFontSize
                                                     font.family: "monospace"
                                                     color: Theme.surfaceVariantText
                                                     anchors.verticalCenter: parent.verticalCenter
@@ -592,8 +702,8 @@ PluginComponent {
 
                                                 StyledText {
                                                     id: timestampText
-                                                    text: taskRow.modelData.allDay ? "XX:XX" : Qt.formatDateTime(new Date(taskRow.modelData.due), "hh:mm")
-                                                    font.pixelSize: Theme.fontSizeSmall * 0.8
+                                                    text: Qt.formatDateTime(new Date(taskRow.modelData.due), "hh:mm")
+                                                    font.pixelSize: detailsRow.detailsFontSize
                                                     font.family: "monospace"
                                                     color: Theme.surfaceVariantText
                                                     anchors.verticalCenter: parent.verticalCenter
@@ -602,7 +712,7 @@ PluginComponent {
                                                 StyledText {
                                                     id: timestampShiftUp
                                                     text: '+'
-                                                    font.pixelSize: Theme.fontSizeSmall * 0.8
+                                                    font.pixelSize: detailsRow.detailsFontSize
                                                     font.family: "monospace"
                                                     color: Theme.surfaceVariantText
                                                     anchors.verticalCenter: parent.verticalCenter
@@ -618,16 +728,23 @@ PluginComponent {
                                                 }
                                             }
 
+                                            StyledText {
+                                                id: priorityText
+                                                text: taskRow.modelData.priority.toString()
+                                                font.pixelSize: detailsRow.detailsFontSize
+                                                font.family: "monospace"
+                                                color: root.getPriorityColor(taskRow.modelData.priority)
+                                                anchors.verticalCenter: parent.verticalCenter
+                                            }
+
                                             // checkbox
                                             StyledRect {
                                                 id: checkbox
-                                                width: 10
+                                                width: detailsRow.detailsFontSize
                                                 height: width
                                                 radius: 1
-                                                // color: completed ? Theme.surfaceVariantText : "transparent"
                                                 color: "transparent"
                                                 border.width: 1
-                                                // border.color: completed ? Theme.success : Theme.error
                                                 border.color: Theme.surfaceVariantText
                                                 anchors.verticalCenter: parent.verticalCenter
 
