@@ -349,8 +349,11 @@ PluginComponent {
             headerText: "Tasks"
             detailsText: "Your upcoming tasks"
             showCloseButton: true
+            spacing: Theme.spacingXS
 
-            DankTooltipV2 { id: tooltip }
+            DankTooltipV2 {
+                id: tooltip
+            }
 
             Row {
                 height: popoutColumn.detailsHeight
@@ -448,7 +451,7 @@ PluginComponent {
                             StyledText {
                                 id: calendarPillText
                                 height: 20
-                                text: root.totalCalendarCount >= 4 && !hoverHandler.hovered ? calendarPill.modelData.substring(0, 3) + "..." : calendarPill.modelData
+                                text: root.totalCalendarCount >= 3 && !hoverHandler.hovered ? calendarPill.modelData.substring(0, 3) + "..." : calendarPill.modelData
                                 font.pixelSize: Theme.fontSizeSmall
                                 anchors.horizontalCenter: parent.horizontalCenter
                                 anchors.verticalCenter: parent.verticalCenter
@@ -491,7 +494,7 @@ PluginComponent {
 
                     StyledText {
                         id: refreshTimestampText
-                        text: refreshIconHoverHandler.hovered ? "Hold to reset!" : Qt.formatDateTime(new Date(root.loadDataTimestamp), "hh:mm ~ ") + root.settings.refreshInterval + "m"
+                        text: Qt.formatDateTime(new Date(root.loadDataTimestamp), "hh:mm ~ ") + root.settings.refreshInterval + "m"
                         font.pixelSize: Theme.fontSizeSmall * 0.8
                         font.family: "monospace"
                         color: Theme.surfaceVariantText
@@ -501,6 +504,9 @@ PluginComponent {
                     Rectangle {
                         width: refreshIcon.width
                         height: width
+                        border.width: 0
+                        radius: Theme.cornerRadius
+
                         color: "transparent"
                         anchors.verticalCenter: parent.verticalCenter
 
@@ -525,14 +531,11 @@ PluginComponent {
                                     root.loadSettings(true);
                                     helperProcess.loadData();
                                 }
+
+                                onEntered: tooltip.show("Hold to reset!", refreshButton)
+                                onExited: tooltip.hide()
                             }
                         }
-                    }
-
-                    HoverHandler {
-                        id: refreshIconHoverHandler
-                        enabled: true
-                        acceptedModifiers: Qt.NoModifier
                     }
                 }
             }
@@ -556,8 +559,9 @@ PluginComponent {
                         id: addTaskInput
                         width: parent.width - Theme.spacingS * 2
                         anchors.centerIn: parent
-                        font.pixelSize: Theme.fontSizeMedium
+                        font.pixelSize: Theme.fontSizeSmall
                         color: Theme.surfaceText
+                        padding: Theme.spacingXS
                         clip: true
 
                         property string placeholderText: "Add a new task..."
@@ -606,7 +610,7 @@ PluginComponent {
                         id: tasksGroupColumn
                         width: parent.width
                         padding: Theme.spacingS
-                        spacing: Theme.spacingM
+                        spacing: Theme.spacingL
 
                         // group tasks by due date
                         Repeater {
@@ -617,7 +621,7 @@ PluginComponent {
                                 id: taskColumn
                                 required property var modelData
                                 width: parent.width
-                                spacing: Theme.spacingS
+                                spacing: Theme.spacingXS
 
                                 property var groupTasks: root.showCompleted ? modelData : modelData.filter(t => !t.completed)
 
@@ -626,8 +630,10 @@ PluginComponent {
                                     width: parent.width
                                     visible: taskColumn.groupTasks.length > 0
                                     text: Qt.formatDateTime(taskColumn.groupTasks[0].due, "ddd, MMM d")
-                                    font.pixelSize: Theme.fontSizeMedium
+                                    font.pixelSize: Theme.fontSizeSmall
                                     color: Theme.surfaceVariantText
+                                    font.bold: true
+                                    font.weight: Font.Bold
                                 }
 
                                 Repeater {
@@ -643,16 +649,20 @@ PluginComponent {
                                         property bool isChild: !!taskRow.modelData.parentUid
                                         property real indent: isChild ? Theme.spacingL : 0
 
-                                        Item { width: taskRow.indent; height: 1; visible: taskRow.isChild }
+                                        Item {
+                                            width: taskRow.indent
+                                            height: 1
+                                            visible: taskRow.isChild
+                                        }
 
                                         StyledText {
                                             text: taskRow.modelData.summary
-                                            font.pixelSize: taskRow.isChild ? Theme.fontSizeSmall : Theme.fontSizeMedium
+                                            font.pixelSize: Theme.fontSizeSmall
                                             font.strikeout: taskRow.modelData.completed
                                             color: Theme.surfaceText
                                             opacity: taskRow.modelData.completed ? 0.4 : 1.0
                                             elide: Text.ElideRight
-                                            width: parent.width - detailsRow.width - Theme.spacingL - Theme.spacingXS - taskRow.indent
+                                            width: parent.width - detailsRow.width - Theme.spacingL - Theme.spacingXS - taskRow.indent - (taskRow.isChild ? Theme.spacingXS : 0)
                                             anchors.verticalCenter: parent.verticalCenter
                                         }
 
@@ -662,14 +672,7 @@ PluginComponent {
                                             spacing: Theme.spacingS
                                             height: parent.height
 
-                                            StyledText {
-                                                id: priorityText
-                                                text: taskRow.modelData.priority.toString()
-                                                font.pixelSize: Theme.fontSizeSmall
-                                                font.family: "monospace"
-                                                color: root.getPriorityColor(taskRow.modelData.priority)
-                                                anchors.verticalCenter: parent.verticalCenter
-                                            }
+                                            property var detailsFontSize: Theme.fontSizeSmall * 0.8
 
                                             // due time with shift buttons (hidden for all-day tasks)
                                             Row {
@@ -682,7 +685,7 @@ PluginComponent {
                                                 StyledText {
                                                     id: timestampShiftDown
                                                     text: '-'
-                                                    font.pixelSize: Theme.fontSizeSmall
+                                                    font.pixelSize: detailsRow.detailsFontSize
                                                     font.family: "monospace"
                                                     color: Theme.surfaceVariantText
                                                     anchors.verticalCenter: parent.verticalCenter
@@ -700,7 +703,7 @@ PluginComponent {
                                                 StyledText {
                                                     id: timestampText
                                                     text: Qt.formatDateTime(new Date(taskRow.modelData.due), "hh:mm")
-                                                    font.pixelSize: Theme.fontSizeSmall
+                                                    font.pixelSize: detailsRow.detailsFontSize
                                                     font.family: "monospace"
                                                     color: Theme.surfaceVariantText
                                                     anchors.verticalCenter: parent.verticalCenter
@@ -709,7 +712,7 @@ PluginComponent {
                                                 StyledText {
                                                     id: timestampShiftUp
                                                     text: '+'
-                                                    font.pixelSize: Theme.fontSizeSmall
+                                                    font.pixelSize: detailsRow.detailsFontSize
                                                     font.family: "monospace"
                                                     color: Theme.surfaceVariantText
                                                     anchors.verticalCenter: parent.verticalCenter
@@ -725,10 +728,19 @@ PluginComponent {
                                                 }
                                             }
 
+                                            StyledText {
+                                                id: priorityText
+                                                text: taskRow.modelData.priority.toString()
+                                                font.pixelSize: detailsRow.detailsFontSize
+                                                font.family: "monospace"
+                                                color: root.getPriorityColor(taskRow.modelData.priority)
+                                                anchors.verticalCenter: parent.verticalCenter
+                                            }
+
                                             // checkbox
                                             StyledRect {
                                                 id: checkbox
-                                                width: Theme.fontSizeSmall
+                                                width: detailsRow.detailsFontSize
                                                 height: width
                                                 radius: 1
                                                 color: "transparent"

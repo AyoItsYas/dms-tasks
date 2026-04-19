@@ -10,7 +10,6 @@ from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
 import urllib3
-
 from caldav import get_calendar
 
 if TYPE_CHECKING:
@@ -87,7 +86,11 @@ def __main__(
         )  # pyright: ignore[reportCallIssue]
 
         if not CALENDAR:
-            detail = _caldav_errors[-1] if _caldav_errors else "check URL, credentials, and calendar name"
+            detail = (
+                _caldav_errors[-1]
+                if _caldav_errors
+                else "check URL, credentials, and calendar name"
+            )
             raise ValueError(
                 f"Calendar '{CALDAV_CALENDAR}' not found on {CALDAV_URL}: {detail}"
             )
@@ -224,9 +227,7 @@ def __main__(
         )
 
     if not CURRENT:
-        CURRENT = next(
-            filter(lambda x: not x.get("completed"), DATA), None
-        )
+        CURRENT = next(filter(lambda x: not x.get("completed"), DATA), None)
 
     # group tasks by date, completed tasks always at the end
     INCOMPLETE = [t for t in DATA if not t["completed"]]
@@ -266,7 +267,11 @@ def toggle_complete(
     )  # pyright: ignore[reportCallIssue]
 
     if not CALENDAR:
-        detail = _caldav_errors[-1] if _caldav_errors else "check URL, credentials, and calendar name"
+        detail = (
+            _caldav_errors[-1]
+            if _caldav_errors
+            else "check URL, credentials, and calendar name"
+        )
         raise ValueError(
             f"Calendar '{CALDAV_CALENDAR}' not found on {CALDAV_URL}: {detail}"
         )
@@ -349,7 +354,11 @@ def shift_due_timestamp(
     )  # pyright: ignore[reportCallIssue]
 
     if not CALENDAR:
-        detail = _caldav_errors[-1] if _caldav_errors else "check URL, credentials, and calendar name"
+        detail = (
+            _caldav_errors[-1]
+            if _caldav_errors
+            else "check URL, credentials, and calendar name"
+        )
         raise ValueError(
             f"Calendar '{CALDAV_CALENDAR}' not found on {CALDAV_URL}: {detail}"
         )
@@ -405,7 +414,11 @@ def add_task(
     )  # pyright: ignore[reportCallIssue]
 
     if not CALENDAR:
-        detail = _caldav_errors[-1] if _caldav_errors else "check URL, credentials, and calendar name"
+        detail = (
+            _caldav_errors[-1]
+            if _caldav_errors
+            else "check URL, credentials, and calendar name"
+        )
         raise ValueError(
             f"Calendar '{CALDAV_CALENDAR}' not found on {CALDAV_URL}: {detail}"
         )
