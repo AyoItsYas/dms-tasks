@@ -52,6 +52,52 @@ PluginComponent {
 
     property bool initzialized: false
 
+    property FileView dataFile: FileView {
+        id: dataFile
+        path: ""
+        blockWrites: true
+        atomicWrites: true
+
+        onLoaded: {
+            try {
+                var data = JSON.parse(text());
+                var currentVersion = root.pluginService.loadedPlugins.tasks.version;
+                if (data.version && data.version !== currentVersion) {
+                    root.tasksData = {};
+                    root.calendarFilter = [pluginData.caldavCalendar];
+                    root.calendarFilterInactive = [];
+                    root.showCompleted = false;
+                    root.saveDataFile();
+                } else {
+                    root.tasksData = data.tasksData || {};
+                    root.calendarFilter = data.calendarFilter || [pluginData.caldavCalendar];
+                    root.calendarFilterInactive = data.calendarFilterInactive || [];
+                    root.showCompleted = data.showCompleted || false;
+                }
+            } catch (e) {
+                root.logError("Failed to parse tasks data file:", e);
+            }
+            helperProcess.loadData();
+        }
+
+        onLoadFailed: {
+            console.log("[Tasks] No existing data file, starting fresh");
+            helperProcess.loadData();
+        }
+    }
+
+    function saveDataFile() {
+        if (!dataFile.path)
+            return;
+        dataFile.setText(JSON.stringify({
+            version: root.pluginService.loadedPlugins.tasks.version,
+            tasksData: root.tasksData || {},
+            calendarFilter: root.calendarFilter,
+            calendarFilterInactive: root.calendarFilterInactive,
+            showCompleted: root.showCompleted
+        }, null, 2));
+    }
+
     // loadSettings
     function loadSettings(hardClear = false) {
         if (!pluginData) {
@@ -82,36 +128,28 @@ PluginComponent {
             root.constants.helper = ["python3", Qt.resolvedUrl(".").toString().replace(/^file:\/\//, "") + "main.py"];
             root.totalCalendarCount = root.settings.caldavCalendars.length + 1;
 
-            var oldVersion = PluginService.loadPluginData(root.pluginId, 'version') || root.pluginService.loadedPlugins.tasks.version;
-
-            if (oldVersion != root.pluginService.loadedPlugins.tasks.version) {
-                hardClear = true;
-            }
-
-            if (!hardClear) {
-                root.tasksData = PluginService.loadPluginData(root.pluginId, 'tasksData') || {};
-                root.calendarFilter = PluginService.loadPluginData(root.pluginId, 'calendarFilter') || [pluginData.caldavCalendar];
-                root.calendarFilterInactive = PluginService.loadPluginData(root.pluginId, 'calendarFilterInactive') || [];
-                root.showCompleted = PluginService.loadPluginData(root.pluginId, 'showCompleted') || false;
-                root.showSubTasks = PluginService.loadPluginData(root.pluginId, 'showSubTasks') || false;
+            if (!dataFile.path) {
+                root.calendarFilter = [pluginData.caldavCalendar];
+                root.calendarFilterInactive = [];
+                dataFile.path = pluginService.pluginDirectory + "/tasks_data.json";
             }
 
             root.initzialized = true;
         }
 
         if (hardClear) {
-            PluginService.savePluginData(root.pluginService.loadedPlugins.tasks.version, 'version');
-            PluginService.savePluginData(root.pluginId, 'tasksData', {});
-            PluginService.savePluginData(root.pluginId, 'calendarFilter', [pluginData.caldavCalendar]);
-            PluginService.savePluginData(root.pluginId, 'calendarFilterInactive', []);
+            root.tasksData = {};
+            root.calendarFilter = [pluginData.caldavCalendar];
+            root.calendarFilterInactive = [];
+            root.showCompleted = false;
+            root.showSubTasks = false;
+            root.saveDataFile();
         }
 
         if (root.totalCalendarCount != root.settings.caldavCalendars.length + 1 || hardClear) {
             root.calendarFilter = [root.settings.caldavCalendar];
             root.calendarFilterInactive = root.settings.caldavCalendars;
-
-            pluginService.savePluginData(root.pluginId, 'calendarFilter', root.calendarFilter);
-            pluginService.savePluginData(root.pluginId, 'calendarFilterInactive', root.calendarFilterInactive);
+            root.saveDataFile();
         }
     }
 
@@ -204,8 +242,7 @@ PluginComponent {
 
                 root.loadDataTimestamp = Date.now();
 
-                PluginService.savePluginData(root.pluginId, 'tasksData', {});
-                PluginService.savePluginData(root.pluginId, 'tasksData', root.tasksData);
+                root.saveDataFile();
             });
         }
 
@@ -261,8 +298,6 @@ PluginComponent {
     Component.onCompleted: {
         Qt.callLater(() => {
             root.loadSettings();
-            helperProcess.loadData();
-
             refreshTimer.running = true;
         });
     }
@@ -291,8 +326,7 @@ PluginComponent {
             root.calendarFilter = root.calendarFilter.concat([calendar]);
         }
 
-        pluginService.savePluginData(root.pluginId, 'calendarFilter', root.calendarFilter);
-        pluginService.savePluginData(root.pluginId, 'calendarFilterInactive', root.calendarFilterInactive);
+        root.saveDataFile();
 
         helperProcess.loadData();
     }
@@ -406,7 +440,7 @@ PluginComponent {
                             hoverEnabled: true
                             onClicked: {
                                 root.showCompleted = !root.showCompleted;
-                                PluginService.savePluginData(root.pluginId, 'showCompleted', root.showCompleted);
+                                root.saveDataFile();
                             }
                             onEntered: tooltip.show(root.showCompleted ? "Hide completed" : "Show completed", completedPill)
                             onExited: tooltip.hide()
@@ -435,7 +469,7 @@ PluginComponent {
                             hoverEnabled: true
                             onClicked: {
                                 root.showSubTasks = !root.showSubTasks;
-                                PluginService.savePluginData(root.pluginId, 'showSubTasks', root.showSubTasks);
+                                root.saveDataFile();
                             }
                             onEntered: tooltip.show(root.showSubTasks ? "Hide sub-tasks" : "Show sub-tasks", showSubTasksPill)
                             onExited: tooltip.hide()

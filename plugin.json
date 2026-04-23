@@ -2,7 +2,7 @@
 	"id": "tasks",
 	"name": "Tasks",
 	"description": "A simple plugin to manage CalDav To-Do events or tasks.",
-	"version": "1.1.1",
+	"version": "1.1.2",
 	"author": "Yasiru Dharmathilaka <yasiru.dharmathilaka@gmail.com>",
 	"icon": "task_alt",
 	"type": "widget",
