@@ -93,6 +93,7 @@ PluginComponent {
                 root.calendarFilter = PluginService.loadPluginData(root.pluginId, 'calendarFilter') || [pluginData.caldavCalendar];
                 root.calendarFilterInactive = PluginService.loadPluginData(root.pluginId, 'calendarFilterInactive') || [];
                 root.showCompleted = PluginService.loadPluginData(root.pluginId, 'showCompleted') || false;
+                root.showSubTasks = PluginService.loadPluginData(root.pluginId, 'showSubTasks') || false;
             }
 
             root.initzialized = true;
@@ -268,6 +269,7 @@ PluginComponent {
 
     // filters
     property bool showCompleted: false
+    property bool showSubTasks: false
     property var prioritySteps: [0, 1, 5, 9, -1]
     property int priorityStepIndex: 4
 
@@ -313,7 +315,21 @@ PluginComponent {
             // current task
             StyledText {
                 visible: root.tasksData != null && root.tasksData.currentTask != null
-                text: root.tasksData != null && root.tasksData.currentTask != null ? ((root.tasksData.completeCount / root.tasksData.totalCount) * 100).toFixed(0) + "% - " + (root.tasksData.currentTask.allDay ? "" : Qt.formatDateTime(root.tasksData.currentTask.due, "hh:mm") + " : ") + root.tasksData.currentTask.summary : ""
+                text: (function () {
+                        var td = root.tasksData;
+                        if (!td || !td.currentTask)
+                            return "";
+
+                        var pctText = "100% - ";
+                        if (td.totalCount && td.totalCount > 0) {
+                            var pct = (td.completeCount / td.totalCount) * 100;
+                            pctText = Math.round(pct) + "% - ";
+                        }
+
+                        var timePart = td.currentTask.allDay ? "" : Qt.formatDateTime(new Date(td.currentTask.due), "hh:mm") + " : ";
+
+                        return pctText + timePart + td.currentTask.summary;
+                    })()
                 font.pixelSize: Theme.fontSizeSmall
                 color: Theme.surfaceText
                 anchors.verticalCenter: parent.verticalCenter
@@ -379,7 +395,7 @@ PluginComponent {
 
                         DankIcon {
                             anchors.centerIn: parent
-                            name: "check"
+                            name: "close"
                             size: 14
                             color: root.showCompleted ? Theme.onPrimary : Theme.surfaceVariantText
                         }
@@ -393,6 +409,35 @@ PluginComponent {
                                 PluginService.savePluginData(root.pluginId, 'showCompleted', root.showCompleted);
                             }
                             onEntered: tooltip.show(root.showCompleted ? "Hide completed" : "Show completed", completedPill)
+                            onExited: tooltip.hide()
+                        }
+                    }
+
+                    StyledRect {
+                        id: showSubTasksPill
+                        width: 20
+                        height: 20
+                        color: root.showSubTasks ? Theme.surfaceVariantText : "transparent"
+                        border.width: 1
+                        border.color: Theme.surfaceVariantText
+                        radius: Theme.cornerRadius
+
+                        DankIcon {
+                            anchors.centerIn: parent
+                            name: "check"
+                            size: 14
+                            color: root.showSubTasks ? Theme.onPrimary : Theme.surfaceVariantText
+                        }
+
+                        MouseArea {
+                            anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
+                            hoverEnabled: true
+                            onClicked: {
+                                root.showSubTasks = !root.showSubTasks;
+                                PluginService.savePluginData(root.pluginId, 'showSubTasks', root.showSubTasks);
+                            }
+                            onEntered: tooltip.show(root.showSubTasks ? "Hide sub-tasks" : "Show sub-tasks", showSubTasksPill)
                             onExited: tooltip.hide()
                         }
                     }
@@ -623,7 +668,21 @@ PluginComponent {
                                 width: parent.width
                                 spacing: Theme.spacingXS
 
-                                property var groupTasks: root.showCompleted ? modelData : modelData.filter(t => !t.completed)
+                                function filterTasks() {
+                                    var result = modelData;
+
+                                    if (!root.showCompleted) {
+                                        result = result.filter(t => !t.completed);
+                                    }
+
+                                    if (!root.showSubTasks) {
+                                        result = result.filter(t => !t.parentUid);
+                                    }
+
+                                    return result;
+                                }
+
+                                property var groupTasks: filterTasks()
 
                                 // group header with due date
                                 StyledText {
@@ -747,6 +806,7 @@ PluginComponent {
                                                 border.width: 1
                                                 border.color: Theme.surfaceVariantText
                                                 anchors.verticalCenter: parent.verticalCenter
+                                                visible: !taskRow.modelData.repeating
 
                                                 property bool completed: taskRow.modelData.completed
 
@@ -759,6 +819,26 @@ PluginComponent {
                                                     color: parent.border.color
                                                     visible: checkbox.completed
                                                 }
+
+                                                MouseArea {
+                                                    anchors.fill: parent
+                                                    enabled: !root.loading
+                                                    cursorShape: enabled ? Qt.PointingHandCursor : Qt.ForbiddenCursor
+                                                    onClicked: {
+                                                        helperProcess.toggleComplete(taskRow.modelData);
+                                                    }
+                                                }
+                                            }
+
+                                            // repeat
+
+                                            DankIcon {
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                anchors.margins: 0
+                                                name: "repeat"
+                                                size: detailsRow.detailsFontSize
+                                                color: Theme.surfaceVariantText
+                                                visible: taskRow.modelData.repeating
 
                                                 MouseArea {
                                                     anchors.fill: parent
