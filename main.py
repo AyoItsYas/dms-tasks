@@ -44,6 +44,12 @@ def debug(*args: Any, **kwargs: Any):
 UTC = ZoneInfo("UTC")
 LOCAL_TZ = TZ if (TZ := datetime.now().astimezone().tzinfo) else UTC
 
+SUPPORTED_RRRULE_DELTA_FRAMES = {
+    "DAILY": timedelta(days=1),
+    "WEEKLY": timedelta(weeks=1),
+    "MONTHLY": timedelta(days=30),
+    "YEARLY": timedelta(days=365),
+}
 
 SUCCESS_PAYLOAD: dict[str, Any] = {"success": True}
 FAILED_PAYLOAD: dict[str, Any] = {"success": False}
@@ -100,6 +106,36 @@ def __main__(
             include_completed=True,
         )
 
+        PARENT_TASKS = {}
+
+        def get_due_from_parent(pid: str) -> datetime:
+            PARENT_TASKS.setdefault(
+                pid, CALENDAR.search(todo=True, include_completed=True, uid=pid)
+            )
+
+            if PARENT_TASKS[pid]:
+                parent_component = PARENT_TASKS[pid][0].get_icalendar_component()
+                parent_due = parent_component.get("DUE")
+                if parent_due:
+                    try:
+                        parent_due_dt = parent_due.dt.replace(
+                            tzinfo=(
+                                ZoneInfo(parent_component.get("TZID"))
+                                if parent_component.get("TZID")
+                                else LOCAL_TZ
+                            )
+                        )
+                        return parent_due_dt
+                    except AttributeError:
+                        return NOW
+                    except Exception as e:
+                        debug(
+                            f"Error processing due date for parent task with UID {pid}: {e}"
+                        )
+                        return NOW
+
+            return NOW
+
         for TODO_EVENT in TODO_EVENTS:
             TODO_EVENT_COMPONENT = TODO_EVENT.get_icalendar_component()
 
@@ -107,20 +143,25 @@ def __main__(
             if PRIORITY is not None and PRIORITY >= 0 and TASK_PRIORITY != PRIORITY:
                 continue
 
-            debug(
-                TODO_EVENT_COMPONENT.get("SUMMARY"),
-                TODO_EVENT_COMPONENT,
-            )
+            UID = TODO_EVENT_COMPONENT.get("UID")
+            SUMMARY = TODO_EVENT_COMPONENT.get("SUMMARY")
+
+            debug(UID, SUMMARY, TODO_EVENT_COMPONENT, "\n")
 
             ALL_DAY = False
             DUE = TODO_EVENT_COMPONENT.get("DUE", False)
+
+            RELATED_TO = TODO_EVENT_COMPONENT.get("RELATED-TO")
+            PARENT_UID = str(RELATED_TO) if RELATED_TO else None
 
             try:
                 DUE.dt.hour
             except AttributeError:
                 ALL_DAY = True
 
-            if DUE and not ALL_DAY:
+            if RELATED_TO:
+                DUE = get_due_from_parent(RELATED_TO)
+            elif DUE and not ALL_DAY:
                 DUE = DUE.dt.replace(
                     tzinfo=(
                         ZoneInfo(TODO_EVENT_COMPONENT.get("TZID"))
@@ -134,38 +175,26 @@ def __main__(
                     hour=0, minute=0, second=0, microsecond=0, tzinfo=LOCAL_TZ
                 )
 
-            DTSTAMP_RAW = TODO_EVENT_COMPONENT.get("DTSTAMP")
-            if DTSTAMP_RAW:
-                DTSTAMP = DTSTAMP_RAW.dt.replace(
-                    tzinfo=(
-                        ZoneInfo(TODO_EVENT_COMPONENT.get("TZID"))
-                        if TODO_EVENT_COMPONENT.get("TZID")
-                        else LOCAL_TZ
-                    )
-                )
-            else:
-                DTSTAMP = datetime.now(LOCAL_TZ)
-
             STATUS = TODO_EVENT_COMPONENT.get("STATUS")
             COMPLETE = STATUS == "COMPLETED"
 
-            if DUE.date() <= TODAY:
+            RRULE = TODO_EVENT_COMPONENT.get("RRULE")
+
+            if DUE.date() <= TODAY and not RRULE and not PARENT_UID:
                 total_count += 1
                 if COMPLETE:
                     complete_count += 1
 
-            RELATED_TO = TODO_EVENT_COMPONENT.get("RELATED-TO")
-            PARENT_UID = str(RELATED_TO) if RELATED_TO else None
-
             EVENT = {
                 "uid": TODO_EVENT_COMPONENT.get("UID"),
-                "summary": TODO_EVENT_COMPONENT.get("SUMMARY"),
+                "summary": SUMMARY,
                 "due": DUE,
                 "completed": COMPLETE,
                 "allDay": ALL_DAY,
                 "priority": TODO_EVENT_COMPONENT.get("PRIORITY", 9),
                 "calendar": CALDAV_CALENDAR,
                 "parentUid": PARENT_UID,
+                "repeating": True if RRULE else False,
             }
 
             DATA.append(EVENT)
@@ -175,26 +204,36 @@ def __main__(
 
     # Reorder so children appear right after their parent
     def _flatten_with_children(tasks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        completed_pids = set()
         children_by_parent: dict[str, list[dict[str, Any]]] = {}
+
         for t in tasks:
             pid = t.get("parentUid")
             if pid:
                 children_by_parent.setdefault(pid, []).append(t)
+            else:
+                if t.get("completed"):
+                    completed_pids.add(t.get("uid"))
 
         seen: set[str] = set()
         result: list[dict[str, Any]] = []
+
         for t in tasks:
             uid = t.get("uid")
             if uid in seen:
                 continue
-            if t.get("parentUid"):
+            puid = t.get("parentUid")
+            if puid:
+                t.update({"completed": puid in completed_pids})
                 continue  # skip children in top pass; they get inserted below their parent
             seen.add(uid)
             result.append(t)
+
             for child in children_by_parent.get(uid, []):
                 if child.get("uid") not in seen:
                     seen.add(child.get("uid"))
                     result.append(child)
+
         return result
 
     DATA = _flatten_with_children(DATA)
@@ -297,22 +336,27 @@ def toggle_complete(
                 del COMPONENT["COMPLETED"]
             else:
                 if RRULE:
-                    if (FREQ := RRULE.get("FREQ")) == ["DAILY"]:
-                        due_date = COMPONENT["DUE"].dt
-                        COMPONENT["DUE"].dt = due_date + timedelta(days=1)
-                        COMPONENT["DTSTAMP"] = (
-                            datetime.now(UTC)
-                            .replace(microsecond=0)
-                            .strftime("%Y%m%dT%H%M%SZ")
-                        )
-                    else:
-                        raise NotImplementedError(
-                            f"Support for task completion for repeating tasks on '{FREQ}' not implemented!"
-                        )
+                    FREQS = RRULE.get("FREQ")
+                    INTERVALS = RRULE.get("INTERVAL", [1])
+                    for FREQ in FREQS:
+                        for INTERVAL in INTERVALS:
+                            if DELTA := SUPPORTED_RRRULE_DELTA_FRAMES.get(FREQ):
+                                DELTA *= INTERVAL
+                                due_date = COMPONENT["DUE"].dt
+                                COMPONENT["DUE"].dt = due_date + DELTA
+                                COMPONENT["DTSTAMP"] = (
+                                    datetime.now(LOCAL_TZ)
+                                    .replace(microsecond=0)
+                                    .strftime("%Y%m%dT%H%M%SZ")
+                                )
+                            else:
+                                raise NotImplementedError(
+                                    f"Support for task completion for repeating tasks on '{FREQ}' not implemented!"
+                                )
                 else:
                     COMPONENT["STATUS"] = "COMPLETED"
                     COMPONENT["COMPLETED"] = (
-                        datetime.now(UTC)
+                        datetime.now(LOCAL_TZ)
                         .replace(microsecond=0)
                         .strftime("%Y%m%dT%H%M%SZ")
                     )
@@ -386,7 +430,7 @@ def shift_due_timestamp(
                 COMPONENT["DUE"].dt = DUE - timedelta(minutes=TIME_DELTA_MINUTES)
 
             COMPONENT["DTSTAMP"] = (
-                datetime.now(UTC).replace(microsecond=0).strftime("%Y%m%dT%H%M%SZ")
+                datetime.now(LOCAL_TZ).replace(microsecond=0).strftime("%Y%m%dT%H%M%SZ")
             )
 
         TODO_EVENT.save()
