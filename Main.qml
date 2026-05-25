@@ -64,15 +64,17 @@ PluginComponent {
                 var currentVersion = root.pluginService.loadedPlugins.tasks.version;
                 if (data.version && data.version !== currentVersion) {
                     root.tasksData = {};
-                    root.calendarFilter = [pluginData.caldavCalendar];
+                    root.calendarFilter = [root.pluginData.caldavCalendar];
                     root.calendarFilterInactive = [];
                     root.showCompleted = false;
+                    root.showSubTasks = false;
                     root.saveDataFile();
                 } else {
                     root.tasksData = data.tasksData || {};
-                    root.calendarFilter = data.calendarFilter || [pluginData.caldavCalendar];
+                    root.calendarFilter = data.calendarFilter || [root.pluginData.caldavCalendar];
                     root.calendarFilterInactive = data.calendarFilterInactive || [];
                     root.showCompleted = data.showCompleted || false;
+                    root.showSubTasks = data.showSubTasks || false;
                 }
             } catch (e) {
                 root.logError("Failed to parse tasks data file:", e);
@@ -94,7 +96,8 @@ PluginComponent {
             tasksData: root.tasksData || {},
             calendarFilter: root.calendarFilter,
             calendarFilterInactive: root.calendarFilterInactive,
-            showCompleted: root.showCompleted
+            showCompleted: root.showCompleted,
+            showSubTasks: root.showSubTasks
         }, null, 2));
     }
 
@@ -580,6 +583,7 @@ PluginComponent {
                     }
 
                     Rectangle {
+                        id: refreshButton
                         width: refreshIcon.width
                         height: width
                         border.width: 0
