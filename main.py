@@ -159,8 +159,8 @@ def __main__(
             except AttributeError:
                 ALL_DAY = True
 
-            if RELATED_TO:
-                DUE = get_due_from_parent(RELATED_TO)
+            if RELATED_TO and PARENT_UID:
+                DUE = get_due_from_parent(PARENT_UID)
             elif DUE and not ALL_DAY:
                 DUE = DUE.dt.replace(
                     tzinfo=(
