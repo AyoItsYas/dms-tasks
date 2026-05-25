@@ -499,6 +499,22 @@ def validate(
 
 
 if __name__ == "__main__":
+    try:
+        import caldav as _
+        import httpx as _
+    except ImportError:
+        data = {
+            "success": False,
+            "message": "Required dependencies not found. Plugin requires 'python-caldav' & 'python-httpx'",
+        }
+        print(
+            json.dumps(
+                data,
+                cls=DateTimeEncoder,
+            )
+        )
+        exit(1)
+
     data = {}
 
     sys.argv.pop(0)  # remove the script name

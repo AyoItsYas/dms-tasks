@@ -9,5 +9,5 @@
 	"component": "./Main.qml",
 	"settings": "./Settings.qml",
 	"permissions": ["settings_read", "settings_write"],
-	"requires": ["python", "python-caldav"]
+	"requires": ["python", "python-caldav", "python-httpx"]
 }

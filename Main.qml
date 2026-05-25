@@ -200,7 +200,6 @@ PluginComponent {
 
             if (!helperProcess.json.success) {
                 root.logError(helperProcess.json.message || "Unknown error from helper process!", true);
-                root.logError("error when running process:", helperProcess.command.join(" "));
                 // throw new Error(helperProcess.json.message || "Unknown error from helper process!");
             }
         }
